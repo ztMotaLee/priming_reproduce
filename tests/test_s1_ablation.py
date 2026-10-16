@@ -665,13 +665,20 @@ class S1LauncherTests(unittest.TestCase):
 
     def test_slurm_signal_uses_absolute_storage_after_changing_directory(self):
         repository, launch_directory = new_directory(), new_directory()
-        child_script = repository / "train.sh"
+        (repository / "train.sh").touch()
+        storage = launch_directory / "relative-storage"
+        (storage / "env/bin").mkdir(parents=True)
+        (storage / "s1_env.sh").write_text("# CPU fixture\n")
+        # Replace only the allocated launcher process; exercise the real batch
+        # shell's absolute flag, signal trap, and interrupted-wait handling.
+        child_script = storage / "env/bin/python"
         child_script.write_text(
             '#!/usr/bin/env bash\nset -eu\ncd "$(dirname "$0")"\n'
             'echo READY\nfor ((i=0;i<100;i++)); do\n'
             '[[ ! -f "$PREEMPT_FLAG_FILE" ]] || exit 75\nsleep 0.02\ndone\nexit 1\n')
+        child_script.chmod(0o755)
         environment = {**os.environ, "STORAGE": "relative-storage", "SLURM_NNODES": "1",
-                       "SLURM_JOB_ID": "fixture", "SLURM_SUBMIT_DIR": str(repository)}
+                       "SLURM_JOB_ID": "fixture", "SLURM_SUBMIT_DIR": str(repository), "DRY_RUN": "0"}
         child = subprocess.Popen(["bash", str(ROOT / "train.slurm")], cwd=launch_directory,
                                  env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:

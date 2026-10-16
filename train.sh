@@ -60,15 +60,23 @@ elif command -v nvidia-smi >/dev/null 2>&1; then
 else
     GPU_COUNT=0
 fi
-case "$GPU_COUNT" in 1|2|4|8|16) ;; *) echo "Need 1, 2, 4, 8, or 16 visible NVIDIA GPUs; found $GPU_COUNT." >&2; exit 2 ;; esac
-ACCUM=$((1024 / (64 * GPU_COUNT)))
+case "$GPU_COUNT" in 1|2|4|8|16|32|64|128) ;; *) echo "Need 1, 2, 4, 8, 16, 32, 64, or 128 visible NVIDIA GPUs; found $GPU_COUNT." >&2; exit 2 ;; esac
+if (( GPU_COUNT <= 16 )); then
+    MICRO=64
+    ACCUM=$((1024 / (64 * GPU_COUNT)))
+else
+    MICRO=$((1024 / GPU_COUNT))
+    ACCUM=1
+fi
 CONFIG_NAME="b${EPOCHS}_perceptual_${SUFFIX}"
 SOURCE_CONFIG="$REPO_ROOT/configs/pretrain/$CONFIG_NAME.yaml"
 # The optional 160-epoch control reuses the explicit 80-epoch control recipe.
 if [[ "$SUFFIX" == s080 && "$EPOCHS" == 160 ]]; then
     SOURCE_CONFIG="$REPO_ROOT/configs/pretrain/b80_perceptual_s080.yaml"
 fi
-CONFIG="$STORAGE/configs/${CONFIG_NAME}_${GPU_COUNT}gpu.yaml"
+CONFIG_DIR=${S1_CONFIG_DIR:-"$STORAGE/configs"}
+[[ "$CONFIG_DIR" = /* ]] || CONFIG_DIR="$PWD/$CONFIG_DIR"
+CONFIG="$CONFIG_DIR/${CONFIG_NAME}_${GPU_COUNT}gpu.yaml"
 OUTPUT=${OUTPUT_DIR:-"$STORAGE/outputs/pretrain/${CONFIG_NAME}_${GPU_COUNT}gpu"}
 [[ "$OUTPUT" = /* ]] || OUTPUT="$PWD/$OUTPUT"
 PYTHON="$STORAGE/env/bin/python"
@@ -117,23 +125,24 @@ COMMAND=("$TORCHRUN" --standalone "--nproc_per_node=$GPU_COUNT" "$REPO_ROOT/pret
     --lpips-weights "$STORAGE/assets/lpips/vgg.pth" --output "$OUTPUT")
 if [[ "$RESUME" != none ]]; then COMMAND+=(--resume "$RESUME"); fi
 if [[ -n ${SMOKE_STEPS:-} ]]; then COMMAND+=(--smoke-steps "$SMOKE_STEPS"); fi
-printf 'GPU_COUNT=%s\nGRADIENT_ACCUMULATION_STEPS=%s\nNOISE_LEVEL=%s\nEPOCHS=%s\nRESUME=%s\nTMPDIR=%s\n' \
-    "$GPU_COUNT" "$ACCUM" "$NOISE_LEVEL" "$EPOCHS" "$RESUME" "$TMPDIR"
+printf 'GPU_COUNT=%s\nMICRO_BATCH_SIZE=%s\nGRADIENT_ACCUMULATION_STEPS=%s\nNOISE_LEVEL=%s\nEPOCHS=%s\nRESUME=%s\nTMPDIR=%s\n' \
+    "$GPU_COUNT" "$MICRO" "$ACCUM" "$NOISE_LEVEL" "$EPOCHS" "$RESUME" "$TMPDIR"
 printf 'COMMAND:'; printf ' %q' "${COMMAND[@]}"; printf '\n'
 [[ ${DRY_RUN:-0} != 1 ]] || exit 0
 
 cd "$REPO_ROOT"
 "$PYTHON" scripts/check_environment.py --cuda
-mkdir -p "$STORAGE/configs"
-"$PYTHON" - "$SOURCE_CONFIG" "$CONFIG" "$ACCUM" "$EPOCHS" <<'PY'
+mkdir -p "$CONFIG_DIR"
+"$PYTHON" - "$SOURCE_CONFIG" "$CONFIG" "$MICRO" "$ACCUM" "$EPOCHS" <<'PY'
 import os
 from pathlib import Path
 import sys
 from omegaconf import OmegaConf
 from utils.config import load_yaml
 
-source, target, accumulation, epochs = sys.argv[1:]
+source, target, micro, accumulation, epochs = sys.argv[1:]
 config = load_yaml(source)
+config['train']['micro_batch_size'] = int(micro)
 config['train']['gradient_accumulation_steps'] = int(accumulation)
 config['train']['epochs'] = int(epochs)
 temporary = Path(target).with_suffix('.yaml.tmp')

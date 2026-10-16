@@ -1,5 +1,6 @@
 """Pretraining save/resume: all-rank B state and historical rank-zero L state."""
 import os
+from numbers import Integral
 from pathlib import Path
 
 import torch
@@ -7,6 +8,34 @@ import torch.distributed as dist
 
 from .random import snapshot_rng, restore_rng
 from .state import optimizer_layout, validate_optimizer_shard, exact_optimizer
+
+
+_cpu_checkpoint_group = None
+_cpu_checkpoint_world = None
+
+
+def _checkpoint_group(config):
+    """Keep large ablation optimizer objects off NCCL's padded GPU buffers."""
+    global _cpu_checkpoint_group, _cpu_checkpoint_world
+    if "ablation" not in config or not dist.is_initialized() or dist.get_backend() != "nccl":
+        return None
+    if not dist.is_gloo_available():
+        raise RuntimeError("Stage-1 checkpoint transport requires the Gloo CPU backend")
+    if _cpu_checkpoint_world is not dist.group.WORLD:
+        _cpu_checkpoint_group = dist.new_group(backend="gloo")
+        _cpu_checkpoint_world = dist.group.WORLD
+    return _cpu_checkpoint_group
+
+
+def _counter(value, name):
+    # Scalar integer tensors are valid; int(float) would silently truncate.
+    if isinstance(value, torch.Tensor):
+        if value.ndim != 0:
+            raise ValueError(f"Checkpoint {name} must be a nonnegative integer")
+        value = value.item()
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < 0:
+        raise ValueError(f"Checkpoint {name} must be a nonnegative integer")
+    return int(value)
 
 
 def to_cpu(value):
@@ -38,7 +67,11 @@ def save_pretraining(output, step, model, optimizer, ema, config, manifest,
                      streams=dict(version="pixel_pair_stateless_v1", next_step=step + 1,
                                   seed=config["train"]["seed"], rank=rank))
         rank_states = [None] * world if rank == 0 else None
-        dist.gather_object(local, rank_states, dst=0)
+        group = _checkpoint_group(config)
+        if group is None:
+            dist.gather_object(local, rank_states, dst=0)
+        else:
+            dist.gather_object(local, rank_states, dst=0, group=group)
     error = [None]
     if rank == 0:
         try:
@@ -81,7 +114,14 @@ def resume_pretraining(path, model, optimizer, ema, config, manifest,
                        *, family, loader_generator=None):
     state = torch.load(path, map_location="cpu", mmap=True, weights_only=False)
     rank, world = dist.get_rank(), dist.get_world_size()
-    step = int(state["step"])
+    ablation = "ablation" in config
+    if ablation and family == "b" and (state.get("world_size") != world
+                                       or len(state.get("rank_states", [])) != world):
+        raise ValueError("Checkpoint rank topology changed; resume requires the original world size")
+    step = _counter(state["step"], "step") if ablation else int(state["step"])
+    if ablation:
+        for name in ("current_step", "samples_seen"):
+            _counter(state.get(name), name)
     global_batch = world * config["train"]["micro_batch_size"] * config["train"]["gradient_accumulation_steps"]
     if state.get("current_step") != step + 1 or state.get("samples_seen") != step * global_batch:
         raise ValueError("Checkpoint counters disagree")
@@ -106,6 +146,12 @@ def resume_pretraining(path, model, optimizer, ema, config, manifest,
     optimizer.load_state_dict(local["optimizer"] if family == "b" else state["optimizer"])
     if family == "b":
         validate_optimizer_shard(optimizer, step, rank, world)
+        if ablation:
+            for group in optimizer.param_groups:
+                if not group["use_muon"] and step:
+                    for parameter in group["params"]:
+                        if _counter(optimizer.state[parameter]["step"], "optimizer step") != step:
+                            raise ValueError("Auxiliary Adam state/counter differs")
         if ema.step_count != step:
             raise ValueError("EMA counter differs")
         loader_generator.set_state(local["loader_rng"])

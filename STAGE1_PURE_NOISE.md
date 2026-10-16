@@ -39,7 +39,7 @@ There is **no FD loss**. Only the following settings change:
 | Input noise level `s` | 0.8 | **1.0: pure noise** |
 | Perceptual threshold | 0.8 | **1.0**, keeping LPIPS and ConvNeXt active |
 | Pretraining length | 160 epochs | **80 epochs**, matching paper §4.1 |
-| GPU count / accumulation | 8 / 2 | Detected automatically; global batch stays **1,024** |
+| GPU count / accumulation | 8 / 2 | Detected automatically; microbatch / accumulation keep global batch **1,024** |
 
 With a GPU count other than eight, the random streams and numerical trajectory
 differ from the eight-GPU recipe. No configuration without an explicit
@@ -47,7 +47,8 @@ differ from the eight-GPU recipe. No configuration without an explicit
 
 ## Start, stop, and resume
 
-`bash train.sh` detects 1, 2, 4, 8, or 16 visible GPUs and uses microbatch 64.
+`bash train.sh` detects visible GPUs on one machine. Supported total GPU counts
+are 1, 2, 4, 8, 16, 32, 64, and 128; use Slurm for multiple machines.
 Repeat the same command to resume `checkpoints/latest.pth`; keep the same GPU
 count, code, assets, and settings. Exit code 75 means a checkpointed stop.
 If an output directory has no latest checkpoint, the script asks you to inspect it.
@@ -84,19 +85,73 @@ These are paper results after post-training, not results produced by this code d
 
 ## Time and compute
 
-80 epochs is **100,080 updates**. Measured on one node with **4× H100 80 GB**
-(60-update smoke run, including a resume): median **1.25 s/update**, mean
-**2.0 s/update** (some steps wait for data), peak GPU memory **27 GB**.
-That is about **35–56 hours on 4× H100** (140–225 GPU-hours). With 8 GPUs,
-expect roughly half the wall time. Check `step_seconds` in `metrics.jsonl`
-after the first few hundred updates for your machine.
+80 epochs is **100,080 updates**. Measured smoke runs (each with a resume),
+H100 80 GB, peak GPU memory **27 GB**:
 
-## Slurm clusters
+| GPUs | Median s/update | Mean s/update | 80 epochs |
+|---|---:|---:|---:|
+| 4 (1 node) | 1.25 | 2.0 | about 35–56 hours |
+| 8 (2 nodes × 4) | 0.64 | 0.80 | about 18–22 hours |
 
-From the repository root, run
-`sbatch --nodes=1 --gres=gpu:4 --time=24:00:00 --export=ALL --no-requeue train.slurm`,
-adding your site's partition/account options. The wrapper requests USR1 ten minutes
-before timeout, saves at an update boundary, and exits 75. Submit the same command again to resume.
+Check `step_seconds` in `metrics.jsonl` after the first few hundred updates
+for your machine.
+
+## Multiple nodes (Slurm)
+
+From this repository folder, after setup on shared storage:
+
+```bash
+sbatch --nodes=16 --ntasks-per-node=1 --gpus-per-node=8 --cpus-per-task=96 --time=24:00:00 --partition=YOUR_PARTITION --account=YOUR_ACCOUNT --export=ALL --no-requeue train.slurm
+```
+
+Change `--nodes` and `--gpus-per-node` here; all nodes must have the same GPU
+count. The checkout, `STORAGE`, environment, assets, outputs, and stop flag must
+be shared. Request **96 CPUs per node for 8 GPUs** (48 for 4); 10 loader workers
+per rank is the default. With fewer CPUs, the launcher reports reduced workers
+and rank threads. This changes data loading, not the training recipe.
+
+| Total GPUs | Images per GPU per microbatch | Accumulation | Global batch |
+|---:|---:|---:|---:|
+| 1 / 2 / 4 | 64 | 16 / 8 / 4 | 1,024 |
+| 8 | 64 | 2 | 1,024 |
+| 16 | 64 | 1 | 1,024 |
+| 32 | 32 | 1 | 1,024 |
+| 64 | 16 | 1 | 1,024 |
+| 128 | 8 | 1 | 1,024 |
+
+The batch host prepares the config and resume decision once. A short per-node
+preflight checks GPU visibility and DataLoader sockets, then one `srun` starts
+one PyTorch launcher per node. The first host is the rendezvous address; the
+job ID determines its port. `DRY_RUN=1 bash train.slurm` prints every node's
+command within an allocation without starting `srun` or training.
+
+The wrapper turns USR1, requested ten minutes before timeout, into a shared
+stop flag. All ranks save at an update boundary and exit 75. Submit the same
+command again to resume; the total GPU count must match the checkpoint.
+
+Reconstruction error, adaptive weights, LPIPS, and ConvNeXt losses operate per
+sample. Averaging DDP gradients and dividing each microbatch loss by accumulation
+gives the same global gradient for the **same samples, noise, and crops** in
+exact arithmetic. EMA still sees batch 1,024. Floating-point summation and
+rank/microbatch RNG streams differ across layouts; this is not bitwise replay.
+
+With 128 GPUs, each GPU handles only 8 images per update. Communication and
+fixed overhead take a larger share, so expect far less than 16× speedup over
+8 GPUs. Measured: 4 GPUs 1.25 s/update and 8 GPUs (two nodes) 0.64 s/update
+(median). A rough, unmeasured 128-GPU planning range is **0.15–0.6 s/update**
+(about 4–17 hours for 80 epochs, excluding startup/checkpoint stalls). This is
+not a benchmark or a bound; measure on the target interconnect. Start with
+**1–2 nodes × 8 GPUs** for better expected cost efficiency. Increasing global batch
+changes the recipe and its comparison with paper `s=0.8`; no such option is provided.
+
+A 4-rank checkpoint was 1.54 GB. A parameter/shard calculation estimates about
+**2.65 GB at 128 ranks**, not 32 times that size: Muon matrices are sharded,
+while small Adam states and RNG/loader metadata repeat per rank. Ablation saves
+use a CPU Gloo group to avoid NCCL object-gather GPU buffers; rank 0 needs roughly
+4 GB of extra host memory during gather, plus model, optimizer, loader, and
+serialization memory. Restore uses memory mapping and loads only each rank's
+optimizer shard. Saving/restoring 128 ranks and its duration still need a real
+multinode measurement; strict topology and state checks remain enabled.
 
 ## Continue with official post-training
 

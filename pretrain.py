@@ -168,7 +168,7 @@ def train(config, family, args, output, hf_home, torch_home):
     ablation = "ablation" in config
     if ablation:
         from uuid import uuid4
-        from utils.s1_ablation import WORLD_SIZES, audit, validate_mask, validate_runtime, write_receipt
+        from utils.s1_ablation import WORLD_SIZES, audit, loader_resources, validate_mask, validate_runtime, write_receipt
         rejected = output.parent / f"{output.name}.s1_rejected_{uuid4().hex}"
         validate_runtime(config, int(os.environ.get("WORLD_SIZE", "0")), output=rejected,
                          rank=int(os.environ.get("RANK", "0")))
@@ -176,7 +176,17 @@ def train(config, family, args, output, hf_home, torch_home):
     else:
         rank, world = initialize()
     try:
-        torch.set_num_threads(4 if family == "b" else int(os.environ.get("OMP_NUM_THREADS", "8")))
+        loader_workers = config["data"]["num_workers"]
+        if ablation:
+            resources = loader_resources(loader_workers, output=rejected, rank=rank)
+            loader_workers = resources["num_workers"]
+            torch.set_num_threads(resources["threads"])
+            if rank == 0:
+                reduction = " (reduced for CPU budget)" if loader_workers < config["data"]["num_workers"] else ""
+                print(f"Stage-1 DataLoader: {loader_workers} workers/rank{reduction}; "
+                      f"CPU budget/rank={resources['cpu_per_rank']}, Torch threads/rank={resources['threads']}", flush=True)
+        else:
+            torch.set_num_threads(4 if family == "b" else int(os.environ.get("OMP_NUM_THREADS", "8")))
         torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = True
         torch.backends.cudnn.benchmark = family == "l"
         torch.backends.cudnn.deterministic = family == "b"
@@ -215,8 +225,8 @@ def train(config, family, args, output, hf_home, torch_home):
                                 seed=config["train"]["seed"], drop_last=True)
         loader_generator = torch.Generator().manual_seed(mixed_seed(config["train"]["seed"], 303, rank)) if family == "b" else None
         loader = DataLoader(dataset, batch_size=config["train"]["micro_batch_size"], sampler=sampler,
-                            num_workers=config["data"]["num_workers"], pin_memory=config["data"]["pin_mem"],
-                            drop_last=True, persistent_workers=config["data"]["num_workers"] > 0,
+                            num_workers=loader_workers, pin_memory=config["data"]["pin_mem"],
+                            drop_last=True, persistent_workers=loader_workers > 0,
                             generator=loader_generator)
         model = make_model(config)
         if ablation:
@@ -256,8 +266,9 @@ def train(config, family, args, output, hf_home, torch_home):
         if completed == 0 and config["train"]["measure_flops"]:
             from torch.utils.flop_counter import FlopCounterMode
             saved_rng = snapshot_rng()
-            dummy = [(torch.zeros(64, 3, 256, 256, device="cuda"),
-                      torch.arange(64, device="cuda")) for _ in range(config["train"]["gradient_accumulation_steps"] if ablation else 2)]
+            dummy_micro = config["train"]["micro_batch_size"] if ablation else 64
+            dummy = [(torch.zeros(dummy_micro, 3, 256, 256, device="cuda"),
+                      torch.arange(dummy_micro, device="cuda")) for _ in range(config["train"]["gradient_accumulation_steps"] if ablation else 2)]
             with FlopCounterMode(display=False) as counter:
                 train_step(config, model, dummy, auxiliary, 1, family=family, rank=rank,
                            **({"audit_output": output} if ablation else {}))
@@ -284,8 +295,9 @@ def train(config, family, args, output, hf_home, torch_home):
         # B historically warms DDP buckets with two backwards and restores RNG.
         if family == "b":
             saved_rng = snapshot_rng()
-            dummy = [(torch.zeros(64, 3, 256, 256, device="cuda"),
-                      torch.arange(64, device="cuda"), torch.zeros(64, 2, dtype=torch.long)) for _ in range(config["train"]["gradient_accumulation_steps"] if ablation else 2)]
+            dummy_micro = config["train"]["micro_batch_size"] if ablation else 64
+            dummy = [(torch.zeros(dummy_micro, 3, 256, 256, device="cuda"),
+                      torch.arange(dummy_micro, device="cuda"), torch.zeros(dummy_micro, 2, dtype=torch.long)) for _ in range(config["train"]["gradient_accumulation_steps"] if ablation else 2)]
             for _ in range(2):
                 optimizer.zero_grad(set_to_none=True)
                 train_step(config, training_model, dummy, auxiliary, max(completed, 1), family=family, rank=rank,

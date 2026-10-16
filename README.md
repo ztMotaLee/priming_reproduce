@@ -8,8 +8,11 @@ bash train.sh
 This runs **Priming-B on ImageNet-256** with pure-noise inputs for 80 epochs.
 Setup needs Conda, about 300 GB plus checkpoint space, and accepted
 [ImageNet terms](https://huggingface.co/datasets/jaykim1102/priming); it asks for Hugging Face login.
-Run training on 1, 2, 4, 8, or 16 H100/H200 GPUs; repeat the same command to resume.
-Measured speed: about 35–56 hours on 4× H100 (roughly half on 8 GPUs).
+Run training on 1–128 H100/H200 GPUs (powers of two); global batch stays 1,024.
+For 16 nodes × 8 GPUs, submit from this folder:
+`sbatch --nodes=16 --ntasks-per-node=1 --gpus-per-node=8 --cpus-per-task=96 --time=24:00:00 --partition=YOUR_PARTITION --account=YOUR_ACCOUNT --export=ALL --no-requeue train.slurm`.
+Repeat the same command with the same total GPU count to resume.
+Measured speed for 80 epochs: about 35–56 hours on 4× H100, about 18–22 hours on 8× H100.
 Files go under `storage/`; set `STORAGE` to use another disk.
 See [the short guide](STAGE1_PURE_NOISE.md) for options and expected behavior.
 
@@ -18,7 +21,7 @@ See [the short guide](STAGE1_PURE_NOISE.md) for options and expected behavior.
 | Noise level | 0.8 | 1.0 |
 | Perceptual threshold | 0.8 | 1.0, keeping perceptual losses active |
 | Epochs | 160 | 80, matching paper §4.1 |
-| Global batch | 1,024 on 8 GPUs | 1,024 with automatic gradient accumulation |
+| Global batch | 1,024 on 8 GPUs | 1,024 with automatic microbatch / accumulation |
 
 ---
 
