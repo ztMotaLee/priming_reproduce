@@ -1,0 +1,15 @@
+# Keep the upstream dependency surface; constrain the JAX/Flax API generation.
+-r ../requirements.txt
+jax==0.4.31
+jaxlib==0.4.31
+flax==0.8.5
+optax==0.2.5
+orbax-checkpoint==0.6.4
+numpy==1.26.4
+transformers==4.46.1
+huggingface-hub==0.24.7
+torch==2.5.1
+torchvision==0.20.1
+safetensors>=0.4.5,<0.9
+sentencepiece>=0.2,<0.3
+pyarrow>=14,<20

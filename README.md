@@ -23,6 +23,29 @@ See [the short guide](STAGE1_PURE_NOISE.md) for options and expected behavior.
 | Epochs | 160 | 80, matching paper §4.1 |
 | Global batch | 1,024 on 8 GPUs | 1,024 with automatic microbatch / accumulation |
 
+## Quick start: T2I Stage-1 (512px text-to-image, JAX)
+
+```bash
+cd t2i_stage1
+CC12M_ROOT=/shared/cc12m CURATED_ROOT=/shared/curated/sources.json DATA_DIR=/shared/stage1 bash setup.sh
+bash train.sh
+```
+
+This trains Priming's **T2I reconstruction Stage 1** on MiniT2I-JAX (MIT): MM-JiT-B/16 with no
+time input, frozen FLAN-T5-Large, 512×512 pixels. Run `setup.sh` on a node with internet;
+training runs offline. For many nodes:
+`sbatch --nodes=16 --gpus-per-node=8 --export=ALL --no-requeue train.slurm` (add your partition/account).
+Checked with a 4× H100 smoke run (20 updates, then resume to 30). See
+[the T2I guide](t2i_stage1/t2i/README.md) for data, options and inferred settings.
+
+| Setting | Value (paper App. C.2) |
+|---|---|
+| Noise level `s` | reweighted logit-normal, p(s) ∝ s⁻²·LogitNormal(0.8, 0.8²); `--noise fixed-0.8` / `fixed-1.0` optional |
+| Input noise | ε ~ N(0, 2²I), x_s = (1−s)·x₀ + s·ε, predict x₀ |
+| Loss | adaptive pixel MSE + 0.4 LPIPS + 0.1 ConvNeXt |
+| Data / length | CC12M 250k updates, then MiniT2I curated 120k for 40k updates |
+| Batch / optimizer | global 1,024; AdamW 4e-4 → 4e-5 |
+
 ---
 
 <div align="center">
