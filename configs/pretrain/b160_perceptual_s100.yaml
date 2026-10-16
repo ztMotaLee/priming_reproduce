@@ -1,0 +1,13 @@
+_base_: _base.yaml
+ablation:
+  name: stage1_noise_level
+  noise_level: 1.0
+data:
+  random_horizontal_flip: true
+model:
+  t_min: 1.0
+  t_max: 1.0
+loss:
+  perceptual_threshold: 1.0
+train:
+  epochs: 160

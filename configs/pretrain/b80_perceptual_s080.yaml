@@ -1,0 +1,8 @@
+_base_: _base.yaml
+ablation:
+  name: stage1_noise_level
+  noise_level: 0.8
+data:
+  random_horizontal_flip: true
+train:
+  epochs: 80

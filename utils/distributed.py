@@ -9,11 +9,13 @@ import torch.distributed as dist
 _stop_requested = False
 
 
-def initialize(stage="Pretraining"):
+def initialize(stage="Pretraining", *, allowed_world_sizes=(8,)):
     if not torch.cuda.is_available():
         raise RuntimeError(f"{stage} requires CUDA; launch with torchrun on eight GPUs")
-    if int(os.environ.get("WORLD_SIZE", "0")) != 8:
-        raise ValueError(f"The production {stage.lower()} recipes require exactly eight torchrun ranks")
+    if int(os.environ.get("WORLD_SIZE", "0")) not in allowed_world_sizes:
+        if allowed_world_sizes == (8,):
+            raise ValueError(f"The production {stage.lower()} recipes require exactly eight torchrun ranks")
+        raise ValueError(f"{stage} requires torchrun ranks in {allowed_world_sizes}")
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
     dist.init_process_group("nccl", timeout=timedelta(minutes=30))
     dist.barrier(device_ids=[int(os.environ["LOCAL_RANK"])])

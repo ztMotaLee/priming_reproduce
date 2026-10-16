@@ -1,3 +1,27 @@
+## Quick start: Stage-1 pure-noise pretraining
+
+```bash
+bash setup.sh
+bash train.sh
+```
+
+This runs **Priming-B on ImageNet-256** with pure-noise inputs for 80 epochs.
+Setup needs Conda, about 300 GB plus checkpoint space, and accepted
+[ImageNet terms](https://huggingface.co/datasets/jaykim1102/priming); it asks for Hugging Face login.
+Run training on 1, 2, 4, 8, or 16 H100/H200 GPUs; repeat the same command to resume.
+Measured speed: about 35–56 hours on 4× H100 (roughly half on 8 GPUs).
+Files go under `storage/`; set `STORAGE` to use another disk.
+See [the short guide](STAGE1_PURE_NOISE.md) for options and expected behavior.
+
+| Setting | Official B | Pure-noise run |
+|---|---|---|
+| Noise level | 0.8 | 1.0 |
+| Perceptual threshold | 0.8 | 1.0, keeping perceptual losses active |
+| Epochs | 160 | 80, matching paper §4.1 |
+| Global batch | 1,024 on 8 GPUs | 1,024 with automatic gradient accumulation |
+
+---
+
 <div align="center">
 
 <h1>Are We Overthinking One-Step Generation?</h1>

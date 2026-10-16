@@ -21,13 +21,18 @@ def load_config(path):
     if family is None:
         raise ValueError("Pretraining supports OST_B and OST_L")
     train, optimizer, model = config["train"], config["optimizer"], config["model"]
-    if (train["micro_batch_size"], train["gradient_accumulation_steps"], train["dtype"]) != (64, 2, "bf16"):
-        raise ValueError("Production pretraining uses microbatch 64, accumulation 2, and BF16")
-    if train["steps_per_epoch"] != 1251 or train["epochs"] != 160:
-        raise ValueError("Production recipes use 1251 updates/epoch for 160 epochs")
+    ablation = "ablation" in config
+    if ablation:
+        from utils.s1_ablation import validate_config
+        validate_config(config, family)
+    else:
+        if (train["micro_batch_size"], train["gradient_accumulation_steps"], train["dtype"]) != (64, 2, "bf16"):
+            raise ValueError("Production pretraining uses microbatch 64, accumulation 2, and BF16")
+        if train["steps_per_epoch"] != 1251 or train["epochs"] != 160:
+            raise ValueError("Production recipes use 1251 updates/epoch for 160 epochs")
     if optimizer["optimizer"] != "muon" or optimizer["lr_sched"] != "constant" or optimizer["warmup_epochs"] != 0:
         raise ValueError("Production reconstruction uses Muon with constant LR and no warmup")
-    if model["label_drop_prob"] != 0 or model["t_dist"] != "uniform" or (model["t_min"], model["t_max"]) != (.8, .8):
+    if not ablation and (model["label_drop_prob"] != 0 or model["t_dist"] != "uniform" or (model["t_min"], model["t_max"]) != (.8, .8)):
         raise ValueError("Production reconstruction uses fixed t=0.8 and no label dropout")
     if family == "l" and not config["loss"]["aux"]["enabled"]:
         raise ValueError("There is no packaged L no-perceptual recipe")
@@ -87,12 +92,19 @@ class AuxiliaryStream:
             return self.fn(prediction, target, mask)
 
 
-def train_step(config, model, batches, auxiliary, step, *, family, rank, device="cuda"):
+def train_step(config, model, batches, auxiliary, step, *, family, rank, device="cuda", audit_output=None):
     """Preserve B/L RNG and accumulation arithmetic; CPU is for equivalence tests."""
     import torch
     from utils.random import mixed_seed
     model.train()
     accumulation = config["train"]["gradient_accumulation_steps"]
+    ablation = "ablation" in config
+    if ablation:
+        from utils.s1_ablation import audit, validate_mask
+        if len(batches) != accumulation or auxiliary is None:
+            audit(audit_output, "microbatches", dict(step=step, supplied_microbatches=len(batches),
+                  required_microbatches=accumulation, auxiliary_enabled=auxiliary is not None, passed=False), rank=rank)
+            raise ValueError("Stage-1 requires all accumulation microbatches and perceptual losses")
     total = torch.zeros((), device=device)
     metrics = {}
     for micro, batch in enumerate(batches):
@@ -106,9 +118,25 @@ def train_step(config, model, batches, auxiliary, step, *, family, rank, device=
             if auxiliary is not None:
                 auxiliary.call_seed = mixed_seed(config["train"]["seed"], 202, rank, step, micro)
         sync = nullcontext() if micro + 1 == accumulation or not hasattr(model, "no_sync") else model.no_sync()
+        step_auxiliary = auxiliary
+        if ablation:
+            active_fractions = []
+
+            def step_auxiliary(prediction, target, mask):
+                active_fractions.append(validate_mask(mask, output=audit_output, rank=rank, step=step, micro=micro,
+                    noise_level=config["ablation"]["noise_level"], perceptual_threshold=config["loss"]["perceptual_threshold"]))
+                return auxiliary(prediction, target, mask)
+
         with sync:
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device == "cuda", cache_enabled=False):
-                loss, values = model(images, labels, aux_loss_fn=auxiliary)
+                loss, values = model(images, labels, aux_loss_fn=step_auxiliary)
+                if ablation:
+                    if len(active_fractions) != 1:
+                        audit(audit_output, "perceptual_calls", dict(step=step, micro=micro,
+                              observed_calls=len(active_fractions), required_calls=1, passed=False), rank=rank)
+                        raise ValueError("Stage-1 requires exactly one perceptual call per microbatch")
+                    values = dict(values, perceptual_active_fraction=active_fractions[0],
+                                  noise_level=torch.tensor(config["ablation"]["noise_level"], device=device))
                 if family == "b":
                     (loss / accumulation).backward()
             if family == "l":
@@ -137,7 +165,16 @@ def train(config, family, args, output, hf_home, torch_home):
     from utils.pretrain_checkpoint import save_pretraining, resume_pretraining
     from utils.random import mixed_seed, seed_all, snapshot_rng, restore_rng
 
-    rank, world = initialize()
+    ablation = "ablation" in config
+    if ablation:
+        from uuid import uuid4
+        from utils.s1_ablation import WORLD_SIZES, audit, validate_mask, validate_runtime, write_receipt
+        rejected = output.parent / f"{output.name}.s1_rejected_{uuid4().hex}"
+        validate_runtime(config, int(os.environ.get("WORLD_SIZE", "0")), output=rejected,
+                         rank=int(os.environ.get("RANK", "0")))
+        rank, world = initialize(allowed_world_sizes=WORLD_SIZES)
+    else:
+        rank, world = initialize()
     try:
         torch.set_num_threads(4 if family == "b" else int(os.environ.get("OMP_NUM_THREADS", "8")))
         torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = True
@@ -164,6 +201,8 @@ def train(config, family, args, output, hf_home, torch_home):
         if "error" in manifest_message[0]:
             raise RuntimeError(manifest_message[0]["error"])
         manifest = manifest_message[0]["manifest"]
+        if ablation:
+            validate_runtime(config, world, output=rejected, rank=rank)
         dist.barrier()
         logging.basicConfig(level=logging.INFO if rank == 0 else logging.WARNING,
                             format="%(asctime)s %(message)s")
@@ -180,6 +219,10 @@ def train(config, family, args, output, hf_home, torch_home):
                             drop_last=True, persistent_workers=config["data"]["num_workers"] > 0,
                             generator=loader_generator)
         model = make_model(config)
+        if ablation:
+            times = model.sample_t(config["train"]["micro_batch_size"], "cuda", torch.float32)
+            validate_mask(times.view(-1) <= model.perceptual_threshold, output=rejected, rank=rank,
+                          noise_level=config["ablation"]["noise_level"], perceptual_threshold=model.perceptual_threshold)
         broadcast_model(model)
         ema = EMA(model, decay=.9999, batch_size=1024)
         optimizer = create_optimizer(model, config["optimizer"])
@@ -190,8 +233,20 @@ def train(config, family, args, output, hf_home, torch_home):
         auxiliary = AuxiliaryStream(raw_auxiliary) if family == "b" and raw_auxiliary is not None else raw_auxiliary
         completed, elapsed = 0, 0.
         if args.resume:
-            completed, elapsed = resume_pretraining(resolve(args.resume), model, optimizer, ema, config, manifest,
-                family=family, loader_generator=loader_generator)
+            if ablation:
+                try:
+                    completed, elapsed = resume_pretraining(resolve(args.resume), model, optimizer, ema, config, manifest,
+                        family=family, loader_generator=loader_generator)
+                except Exception as exc:
+                    audit(rejected, "resume", dict(checkpoint=str(resolve(args.resume)), error=repr(exc), passed=False), rank=rank)
+                    raise
+            else:
+                completed, elapsed = resume_pretraining(resolve(args.resume), model, optimizer, ema, config, manifest,
+                    family=family, loader_generator=loader_generator)
+        if ablation:
+            # Every rank must accept startup before updating an existing run.
+            dist.barrier()
+            validate_runtime(config, world, output=output, rank=rank, record_success=True)
         if rank == 0:
             (output / "config.json").write_text(json.dumps(config, indent=2) + "\n")
             (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -202,16 +257,17 @@ def train(config, family, args, output, hf_home, torch_home):
             from torch.utils.flop_counter import FlopCounterMode
             saved_rng = snapshot_rng()
             dummy = [(torch.zeros(64, 3, 256, 256, device="cuda"),
-                      torch.arange(64, device="cuda")) for _ in range(2)]
+                      torch.arange(64, device="cuda")) for _ in range(config["train"]["gradient_accumulation_steps"] if ablation else 2)]
             with FlopCounterMode(display=False) as counter:
-                train_step(config, model, dummy, auxiliary, 1, family=family, rank=rank)
+                train_step(config, model, dummy, auxiliary, 1, family=family, rank=rank,
+                           **({"audit_output": output} if ablation else {}))
             optimizer.zero_grad(set_to_none=True)
             restore_rng(saved_rng)
             flops = torch.tensor(counter.get_total_flops(), device="cuda", dtype=torch.int64)
             dist.all_reduce(flops)
             if rank == 0:
                 (output / "training_flops.json").write_text(json.dumps(dict(
-                    global_step_flops=flops.item(), planned_updates=200160,
+                    global_step_flops=flops.item(), planned_updates=config["train"]["epochs"] * 1251 if ablation else 200160,
                     scope="Supported forward/backward operations; excludes optimizer/EMA/communication"), indent=2) + "\n")
             del dummy
         if config["train"]["compile"]:
@@ -229,10 +285,11 @@ def train(config, family, args, output, hf_home, torch_home):
         if family == "b":
             saved_rng = snapshot_rng()
             dummy = [(torch.zeros(64, 3, 256, 256, device="cuda"),
-                      torch.arange(64, device="cuda"), torch.zeros(64, 2, dtype=torch.long)) for _ in range(2)]
+                      torch.arange(64, device="cuda"), torch.zeros(64, 2, dtype=torch.long)) for _ in range(config["train"]["gradient_accumulation_steps"] if ablation else 2)]
             for _ in range(2):
                 optimizer.zero_grad(set_to_none=True)
-                train_step(config, training_model, dummy, auxiliary, max(completed, 1), family=family, rank=rank)
+                train_step(config, training_model, dummy, auxiliary, max(completed, 1), family=family, rank=rank,
+                           **({"audit_output": output} if ablation else {}))
             optimizer.zero_grad(set_to_none=True)
             restore_rng(saved_rng)
             del dummy
@@ -266,13 +323,21 @@ def train(config, family, args, output, hf_home, torch_home):
                     next(iterator)
             while completed < min((epoch + 1) * epoch_steps, target):
                 step = completed + 1
+                if ablation:
+                    torch.cuda.synchronize()
+                    torch.cuda.reset_peak_memory_stats()
+                    step_started = time.perf_counter()
                 loss, metrics = train_step(config, training_model, [next(iterator) for _ in range(accumulation)],
-                    auxiliary, step, family=family, rank=rank)
+                    auxiliary, step, family=family, rank=rank, **({"audit_output": output} if ablation else {}))
                 norm = grad_norm(model.parameters())
                 if family == "b":
                     finite = torch.stack([loss, norm, *metrics.values()]).isfinite().all().to(torch.int32)
                     dist.all_reduce(finite, op=dist.ReduceOp.MIN)
                     if not finite.item():
+                        if ablation:
+                            audit(output, "finite_loss_gradient", dict(step=step, loss=float(loss.item()),
+                                  grad_norm=float(norm.item()), metrics={key: float(value.item()) for key, value in metrics.items()},
+                                  all_ranks_finite=False, passed=False), rank=rank)
                         raise FloatingPointError(f"Nonfinite loss/gradient at update {step}")
                 if torch.isfinite(norm):
                     if config["optimizer"]["grad_clip"] > 0:
@@ -286,9 +351,16 @@ def train(config, family, args, output, hf_home, torch_home):
                 values = torch.tensor([loss.item(), norm.item(), *[float(v) for v in metrics.values()]], device="cuda")
                 dist.all_reduce(values)
                 values /= world
+                if ablation:
+                    torch.cuda.synchronize()
+                    performance = torch.tensor([time.perf_counter() - step_started,
+                        torch.cuda.max_memory_allocated()], device="cuda", dtype=torch.float64)
+                    dist.all_reduce(performance, op=dist.ReduceOp.MAX)
                 if rank == 0:
                     row = dict(step=step, loss=values[0].item(), grad_norm=values[1].item(),
                                **{name: value.item() for name, value in zip(metrics, values[2:])})
+                    if ablation:
+                        row.update(step_seconds=performance[0].item(), peak_memory_allocated_bytes=int(performance[1].item()))
                     with (output / "metrics.jsonl").open("a") as handle:
                         handle.write(json.dumps(row) + "\n")
                     if step <= 2 or step % train_cfg["print_freq"] == 0:
@@ -302,6 +374,12 @@ def train(config, family, args, output, hf_home, torch_home):
                         pretraining_panels(output, step, model, ema, validation_rows)
                     dist.barrier()
                 if stop:
+                    if ablation:
+                        if rank == 0:
+                            write_receipt(output / "safe_stop.json", dict(state="SAFE_STOPPED",
+                                launch_id=os.environ.get("S1_LAUNCH_ID"), completed=step,
+                                checkpoint=str(output / "checkpoints" / f"step_{step:07d}.pth")))
+                        dist.barrier()
                     return 75
         return 0
     finally:
@@ -313,18 +391,20 @@ def main():
     parser.add_argument("--config", required=True)
     parser.add_argument("--output", help="Fresh training output directory")
     parser.add_argument("--resume", help="Renewed pretraining checkpoint, or a historical L checkpoint")
-    parser.add_argument("--smoke-steps", type=int, help="Stop a fresh run after this many updates")
+    parser.add_argument("--smoke-steps", type=int, help="Stop at this absolute update (ablation also supports resume)")
     parser.add_argument("--data-path", help="Root containing imagenet-latents-images")
     parser.add_argument("--hf-home")
     parser.add_argument("--torch-home")
     parser.add_argument("--lpips-weights", default="assets/lpips/vgg.pth")
     parser.add_argument("--check-config", action="store_true", help="Validate the recipe/model schema without data or GPUs")
     args = parser.parse_args()
-    if args.smoke_steps is not None and (args.smoke_steps < 1 or args.resume):
+    if args.smoke_steps is not None and args.smoke_steps < 1:
         parser.error("--smoke-steps must be positive and requires a fresh run")
     if not args.check_config and not args.output:
         parser.error("--output is required for training")
     config, family = load_config(args.config)
+    if args.smoke_steps is not None and args.resume and "ablation" not in config:
+        parser.error("--smoke-steps must be positive and requires a fresh run")
     if args.data_path:
         config["data"]["data_path"] = str(resolve(args.data_path))
     if args.check_config:
@@ -337,9 +417,15 @@ def main():
                               perceptual=config["loss"]["aux"]["enabled"]), indent=2))
         return 0
     output = resolve(args.output)
+    # The S1 launcher has checked this directory for DataLoader sockets.
+    worker_tmpdir = os.environ.get("TMPDIR", "/tmp") if "ablation" in config else None
     hf_home, torch_home = configure_environment(output, phase="pretraining",
         hf_home=args.hf_home, torch_home=args.torch_home,
         threads=4 if family == "b" else 8, deterministic=family == "b")
+    if worker_tmpdir is not None:
+        import tempfile
+        os.environ["TMPDIR"] = worker_tmpdir
+        tempfile.tempdir = worker_tmpdir
     return train(config, family, args, output, hf_home, torch_home)
 
 

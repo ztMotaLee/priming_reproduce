@@ -32,3 +32,4 @@ venv/
 *.tmp
 *.lock
 /condaenv.*.requirements.txt
+/storage/
