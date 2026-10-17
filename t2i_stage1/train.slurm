@@ -24,6 +24,11 @@ cd -- "$code_dir" || exit 2
 [[ -f train.sh && -f t2i/train.py ]] || {
   printf 'Invalid Stage-1 code directory: %s\n' "$PWD" >&2; exit 2;
 }
+[[ ! -f .stage1.env ]] || source .stage1.env
+CC12M_ONLY="${CC12M_ONLY-0}"
+[[ "$CC12M_ONLY" == 0 || "$CC12M_ONLY" == 1 ]] || { printf '%s\n' 'CC12M_ONLY must be 0 or 1' >&2; exit 2; }
+# Export one batch-host decision; workers' .stage1.env cannot change it.
+export CC12M_ONLY
 unset TRANSFORMERS_CACHE PYTORCH_TRANSFORMERS_CACHE PYTORCH_PRETRAINED_BERT_CACHE
 unset HF_HUB_CACHE HUGGINGFACE_HUB_CACHE JAX_COMPILATION_CACHE_DIR JAX_ENABLE_COMPILATION_CACHE
 export XLA_FLAGS='--xla_gpu_autotune_level=1'
@@ -33,6 +38,7 @@ export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1
 want_value=0
 requested_microbatch="${MICROBATCH:-1}"
 requested_steps=290000
+[[ "$CC12M_ONLY" == 0 ]] || requested_steps=250000
 requested_smoke=0
 requested_checkpoint_every=5000
 for arg in "$@"; do
@@ -50,10 +56,11 @@ for arg in "$@"; do
     want_value=0
   else
     case "$arg" in
-      --cc12m-root|--curated-root|--output-dir|--resume|--t5-model|--perceptual-dir) want_value=1; value_kind=path ;;
+      --cc12m-root|--curated-root|--output-dir|--resume|--t5-model|--perceptual-dir|--data-dir) want_value=1; value_kind=path ;;
       --steps|--checkpoint-every|--microbatch) want_value=1; value_kind=number; numeric_option="$arg" ;;
       --noise) want_value=1; value_kind=noise ;;
       --smoke) requested_smoke=1 ;;
+      --cc12m-only) printf '%s\n' 'Use CC12M_ONLY=1 with train.slurm; --cc12m-only is the Python CLI switch.' >&2; exit 2 ;;
       *) printf 'Unsupported training argument: %s\n' "$arg" >&2; exit 2 ;;
     esac
   fi
@@ -76,11 +83,14 @@ positive = all(values[k] is not None and values[k] > 0
                for k in ('nodes', 'gpus', 'microbatch', 'steps', 'checkpoint_every'))
 devices = values['nodes'] * values['gpus'] if positive else None
 denominator = devices * values['microbatch'] if positive else None
-passed = bool(positive and values['steps'] <= 290000 and values['smoke'] in (0, 1)
-              and (values['smoke'] == 1 or values['steps'] == 290000)
+cc12m_only = os.environ['CC12M_ONLY'] == '1'
+maximum_steps = 250000 if cc12m_only else 290000
+passed = bool(positive and values['steps'] <= maximum_steps and values['smoke'] in (0, 1)
+              and (values['smoke'] == 1 or values['steps'] == maximum_steps)
               and 1024 % denominator == 0)
 record = {'gate': 'launch_batch_and_dose', 'raw': raw, 'values': values,
-          'global_batch': 1024, 'maximum_steps': 290000, 'production_steps': 290000,
+          'global_batch': 1024, 'maximum_steps': maximum_steps, 'production_steps': maximum_steps,
+          'cc12m_only': cc12m_only, 'data_plan': 'cc12m-only' if cc12m_only else 'paper-two-stage',
           'global_devices': devices, 'batch_divisor': denominator,
           'xla_flags': os.environ.get('XLA_FLAGS'), 'accepted': passed}
 target = pathlib.Path(sys.argv[1])
@@ -98,10 +108,12 @@ gpus=$((10#$gpus))
 export JAX_PROCESS_COUNT="$nodes"
 export STAGE1_GPUS_PER_NODE="$gpus" GPUS_PER_NODE="$gpus"
 if [[ "${DRY_RUN:-0}" == 1 ]]; then
+  printf 'CC12M_ONLY=%s\n' "$CC12M_ONLY"
   export JAX_COORDINATOR_ADDRESS="${JAX_COORDINATOR_ADDRESS:-node0:12355}"
   printf 'DRY_RUN nodes=%s GPUs_per_node=%s processes_per_node=1 global_batch=1024 effective_per_GPU=%s coordinator=%s\n' \
     "$nodes" "$gpus" "$((1024 / (nodes * gpus)))" "$JAX_COORDINATOR_ADDRESS"
   printf 'launch:'; printf ' %q' srun --export=ALL --kill-on-bad-exit=1 --ntasks="$nodes" --ntasks-per-node=1 --gpus-per-task="$gpus" --gpu-bind=none bash "$PWD/train.sh" "$@"; printf '\n'
+  bash "$PWD/train.sh" "$@"
   exit 0
 fi
 [[ -n "${SLURM_JOB_ID:-}" ]] || { printf '%s\n' 'Use sbatch train.slurm, or DRY_RUN=1 for inspection' >&2; exit 2; }

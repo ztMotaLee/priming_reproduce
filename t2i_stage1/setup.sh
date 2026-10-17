@@ -2,10 +2,13 @@
 # One-time environment/assets preparation. Dataset downloads are opt-in.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
+CC12M_ONLY="${CC12M_ONLY-0}"
+[[ "$CC12M_ONLY" == 0 || "$CC12M_ONLY" == 1 ]] || { printf '%s\n' 'CC12M_ONLY must be 0 or 1' >&2; exit 2; }
+export CC12M_ONLY
 environment_only=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --help|-h) printf '%s\n' 'Usage: bash setup.sh [--dry-run] [--environment-only]' 'Set CC12M_ROOT and CURATED_ROOT for existing local shards; DOWNLOAD_DATA=1 prepares missing datasets.' 'Use --environment-only on login nodes: install dependencies without touching datasets or model assets.'; exit 0 ;;
+    --help|-h) printf '%s\n' 'Usage: bash setup.sh [--dry-run] [--environment-only]' 'Set CC12M_ROOT and CURATED_ROOT for existing local shards; DOWNLOAD_DATA=1 prepares missing datasets.' 'CC12M_ONLY=1 prepares/checks only CC12M (paper Stage A).' 'Use --environment-only on login nodes: install dependencies without touching datasets or model assets.'; exit 0 ;;
     --dry-run) export DRY_RUN=1 ;;
     --environment-only) environment_only=1 ;;
     *) printf 'Unknown setup argument: %s\n' "$1" >&2; exit 2 ;;
@@ -31,11 +34,39 @@ VENV_DIR="${VENV_DIR:-$PWD/.venv}"
 JAX_PLATFORM="${JAX_PLATFORM:-cuda12}"
 [[ "$JAX_PLATFORM" == cuda12 || "$JAX_PLATFORM" == cpu ]] || { printf '%s\n' 'JAX_PLATFORM must be cuda12 or cpu' >&2; exit 2; }
 [[ "${DOWNLOAD_DATA:-0}" == 0 || "${DOWNLOAD_DATA:-0}" == 1 ]] || { printf '%s\n' 'DOWNLOAD_DATA must be 0 or 1' >&2; exit 2; }
+data_plan=paper-two-stage
+[[ "$CC12M_ONLY" == 0 ]] || data_plan=cc12m-only
+prep=("$VENV_DIR/bin/python" -m t2i.prepare datasets --data-dir "$DATA_DIR" --t5-model "$T5_MODEL" --download
+      --processes "${DOWNLOAD_PROCESSES:-8}" --threads "${DOWNLOAD_THREADS:-32}")
+check=("$VENV_DIR/bin/python" -m t2i.prepare check --cc12m-root "$CC12M_ROOT" --data-dir "$DATA_DIR")
+[[ "$provided_cc12m" != 1 ]] || prep+=(--cc12m-root "$CC12M_ROOT")
+if [[ "$CC12M_ONLY" == 1 ]]; then
+  prep+=(--cc12m-only)
+  check+=(--cc12m-only)
+  [[ "$provided_curated" != 1 ]] || printf '%s\n' 'CC12M_ONLY=1: ignoring CURATED_ROOT.'
+else
+  [[ "$provided_curated" != 1 ]] || prep+=(--curated-root "$CURATED_ROOT")
+  check+=(--curated-root "$CURATED_ROOT")
+fi
 if [[ "${DRY_RUN:-0}" == 1 ]]; then
   printf 'DRY_RUN setup: Python >=3.10,<3.13; venv=%q; JAX=0.4.31 [%s]\n' "$VENV_DIR" "$JAX_PLATFORM"
+  printf 'CC12M_ONLY=%s data_plan=%s\n' "$CC12M_ONLY" "$data_plan"
   printf 'ENVIRONMENT_ONLY=%s (no asset/data preparation or .stage1.env write)\n' "$environment_only"
-  printf 'CC12M_ROOT=%q\nCURATED_ROOT=%q\nT5_MODEL=%q\nPERCEPTUAL_DIR=%q\n' "$CC12M_ROOT" "$CURATED_ROOT" "$T5_MODEL" "$PERCEPTUAL_DIR"
-  printf 'DOWNLOAD_DATA=%s (CC12M URL metadata 3.58 GB; curated raw downloads 231.45 GB; image URLs extra)\n' "${DOWNLOAD_DATA:-0}"
+  printf 'CC12M_ROOT=%q\nT5_MODEL=%q\nPERCEPTUAL_DIR=%q\n' "$CC12M_ROOT" "$T5_MODEL" "$PERCEPTUAL_DIR"
+  [[ "$CC12M_ONLY" == 1 ]] || printf 'CURATED_ROOT=%q\n' "$CURATED_ROOT"
+  cc12m_download=0; curated_download=0
+  if [[ "${DOWNLOAD_DATA:-0}" == 1 && "$environment_only" == 0 ]]; then
+    cc12m_download=3.58
+    [[ "$CC12M_ONLY" == 1 || "$provided_curated" == 1 ]] || curated_download=231.45
+  fi
+  printf 'DOWNLOAD_DATA=%s (CC12M URL metadata %s GB; curated raw downloads %s GB; CC12M image URLs extra when downloading)\n' "${DOWNLOAD_DATA:-0}" "$cc12m_download" "$curated_download"
+  if [[ "$provided_cc12m" == 1 && "${DOWNLOAD_DATA:-0}" == 1 ]]; then
+    printf 'Existing CC12M: verify caption_llava; recaption to %q if needed (free space >=1.05x input tar bytes).\n' "$DATA_DIR/cc12m_llava"
+  fi
+  if [[ "$environment_only" == 0 ]]; then
+    if [[ "${DOWNLOAD_DATA:-0}" == 1 ]]; then printf 'command:'; printf ' %q' "${prep[@]}"; printf '\n'; fi
+    printf 'command:'; printf ' %q' "${check[@]}"; printf '\n'
+  fi
   exit 0
 fi
 # Setup needs internet and enough CPU memory for weight conversion. Tiger uses
@@ -97,16 +128,17 @@ validate_t5_assets(sys.argv[1], verify_payloads=True)
 validate_perceptual_assets(sys.argv[2], verify_payloads=True)
 PY
 if [[ "${DOWNLOAD_DATA:-0}" == 1 ]]; then
-  prep=("$PYTHON" -m t2i.prepare datasets --data-dir "$DATA_DIR" --t5-model "$T5_MODEL" --download
-        --processes "${DOWNLOAD_PROCESSES:-8}" --threads "${DOWNLOAD_THREADS:-32}")
-  [[ "$provided_cc12m" != 1 ]] || prep+=(--cc12m-root "$CC12M_ROOT")
-  [[ "$provided_curated" != 1 ]] || prep+=(--curated-root "$CURATED_ROOT")
   "${prep[@]}"
 fi
-"$PYTHON" -m t2i.prepare check --cc12m-root "$CC12M_ROOT" --curated-root "$CURATED_ROOT"
-# Store only local paths, shell-quoted; explicit environment settings still win.
+"${check[@]}"
+CC12M_ROOT="$("$PYTHON" -m t2i.prepare resolve --cc12m-root "$CC12M_ROOT" --data-dir "$DATA_DIR")"
+[[ -n "$CC12M_ROOT" ]] || { printf '%s\n' 'CC12M root resolution returned no path' >&2; exit 2; }
+# Store shell-quoted paths. The trainer also resolves an exported original root
+# through the verified DATA_DIR mapping created during recaption.
 env_tmp="$(mktemp "$PWD/.stage1.env.tmp-XXXXXXXX")"
-for name in DATA_DIR ASSET_ROOT T5_MODEL PERCEPTUAL_DIR CC12M_ROOT CURATED_ROOT OUTPUT_DIR VENV_DIR; do
+for name in DATA_DIR ASSET_ROOT T5_MODEL PERCEPTUAL_DIR CC12M_ROOT CURATED_ROOT OUTPUT_DIR VENV_DIR CC12M_ONLY; do
+  # A-only setup prepares no curated data; a later Stage-B setup must still download it.
+  [[ "$CC12M_ONLY" == 0 || "$name" != CURATED_ROOT ]] || continue
   printf 'if [[ -z ${%s+x} ]]; then %s=%q; fi\n' "$name" "$name" "${!name}" >> "$env_tmp"
   printf 'export %s\n' "$name" >> "$env_tmp"
 done

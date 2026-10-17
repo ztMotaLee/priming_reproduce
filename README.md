@@ -32,9 +32,9 @@ run these lines in order. Run the `setup.sh` line on a node with internet; train
 git clone https://github.com/ztMotaLee/priming_reproduce.git
 cd priming_reproduce/t2i_stage1
 export CC12M_ROOT=/A/B/C                         # existing CC12M shards
-export DATA_DIR=/A/B/priming_t2i                 # shared disk, ~250 GB free
+export DATA_DIR=/A/B/priming_t2i                 # shared disk; allow a CC12M-sized caption copy plus assets/curated data
 export OUTPUT_DIR=/A/B/priming_t2i/runs/stage1   # shared disk for checkpoints
-DOWNLOAD_DATA=1 bash setup.sh                     # env + T5/perceptual weights + curated mix (reuses CC12M)
+DOWNLOAD_DATA=1 bash setup.sh                     # original captions are automatically copied/replaced with LLaVA captions
 sbatch --nodes=16 --gpus-per-node=8 --partition=YOUR_PARTITION --account=YOUR_ACCOUNT --export=ALL --no-requeue train.slurm
 ```
 
@@ -49,9 +49,46 @@ sbatch --nodes=16 --gpus-per-node=8 --partition=YOUR_PARTITION --account=YOUR_AC
 
 Keep the same number of nodes when resuming. On a single 8-GPU node, use `bash train.sh`
 instead of `sbatch`. Each CC12M shard must hold `{key}.jpg` (or `.png`) and `{key}.txt` pairs;
-MiniT2I uses the LLaVA-recaptioned CC12M, so other captions change the recipe.
-`setup.sh` writes `DATA_DIR/curated/sources.json` for the curated mix. Checked with a
-4× H100 smoke run (20 updates, then resume to 30). See [the T2I guide](t2i_stage1/t2i/README.md).
+MiniT2I's preparation code trains on `caption_llava`; applying that choice to Priming
+is inferred from its MiniT2I basis, since the paper names CC12M without specifying captions.
+Setup verifies captions and, when needed, writes a LLaVA copy without changing images;
+allow roughly the input CC12M size in free space, metadata/index space and conversion time.
+`setup.sh` writes `DATA_DIR/curated/sources.json` for the curated mix; its 231.45 GB raw
+download also needs converted-data, asset and checkpoint space. Checked on real original-caption
+CC12M shards: caption swap, then 20 updates and a resume to 30 on 4× H100 (about 27 s per
+update at global batch 1,024; measure on your cluster). See [the T2I guide](t2i_stage1/t2i/README.md).
+
+### CC12M only (skip the curated mix)
+
+To run only the paper's Stage A (250k updates on CC12M, everything else unchanged), add `CC12M_ONLY=1`:
+
+```bash
+cd priming_reproduce/t2i_stage1
+export CC12M_ONLY=1                                  # Stage A only; curated mix is never downloaded or read
+export CC12M_ROOT=/A/B/C
+export DATA_DIR=/A/B/priming_t2i
+export OUTPUT_DIR=/A/B/priming_t2i/runs/stage1_cc12m
+DOWNLOAD_DATA=1 bash setup.sh                        # verifies captions; automatically copies original-caption CC12M (~input size free space)
+sbatch --nodes=16 --gpus-per-node=8 --partition=YOUR_PARTITION --account=YOUR_ACCOUNT --export=ALL --no-requeue train.slurm
+```
+
+Resume with the same three lines as above (`.stage1.env` remembers `CC12M_ONLY=1`). The run ends at
+`$OUTPUT_DIR/checkpoint_00250000`. This deviates from the paper, which reports no CC12M-only number
+(its GenEval 0.818 comes after both stages and post-training).
+
+To add the 40k-update Stage B later, continue from that checkpoint in a new output folder:
+
+```bash
+source .stage1.env
+export CC12M_ONLY=0
+export OUTPUT_DIR=/A/B/priming_t2i/runs/stage1_b
+DOWNLOAD_DATA=1 bash setup.sh                        # downloads only the curated mix (~231 GB)
+export RESUME=/A/B/priming_t2i/runs/stage1_cc12m/checkpoint_00250000
+sbatch --nodes=16 --gpus-per-node=8 --partition=YOUR_PARTITION --account=YOUR_ACCOUNT --export=ALL --no-requeue train.slurm
+```
+
+Stage B ends at `$OUTPUT_DIR/checkpoint_00290000`, equivalent to an uninterrupted full run. Keep the same
+number of nodes and GPUs throughout.
 
 | Setting | Value (paper App. C.2) |
 |---|---|

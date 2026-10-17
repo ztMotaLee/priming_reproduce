@@ -22,6 +22,7 @@ from jax.experimental import multihost_utils
 from .checkpoint import (atomic_json, claim_run, read_run_owner, restore_checkpoint,
                          save_checkpoint, sha256)
 from .config import Recipe, batch_layout
+from .data_plan import plan_mismatch_message, plan_name, plan_steps, valid_steps
 from .run_identity import directory_identity
 
 
@@ -243,17 +244,71 @@ def validate_assets(path, kind):
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--cc12m-root', default=os.environ.get('CC12M_ROOT', ''))
+    p.add_argument('--data-dir', default=os.environ.get('DATA_DIR', 'data'))
     p.add_argument('--curated-root', default=os.environ.get('CURATED_ROOT', ''))
     p.add_argument('--output-dir', default=os.environ.get('OUTPUT_DIR', 'runs/stage1'))
     p.add_argument('--resume', default=os.environ.get('RESUME', ''))
     p.add_argument('--t5-model', default=os.environ.get('T5_MODEL', 'data/assets/t5'))
     p.add_argument('--perceptual-dir', default=os.environ.get('PERCEPTUAL_DIR', 'data/assets/perceptual'))
-    p.add_argument('--steps', type=int, default=290000)
+    p.add_argument('--cc12m-only', action='store_true')
+    p.add_argument('--steps', type=int)
     p.add_argument('--checkpoint-every', type=int, default=5000)
     p.add_argument('--microbatch', type=int, default=1)
     p.add_argument('--noise', choices=['logit-normal', 'fixed-0.8', 'fixed-1.0'], default='logit-normal')
     p.add_argument('--smoke', action='store_true')
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.steps is None:
+        args.steps = plan_steps(Recipe(), args.cc12m_only)
+    return args
+
+
+def caption_data_binding(args):
+    from .prepare import resolve_cc12m_root
+    from .recaption import validate_caption_receipt
+    args.cc12m_root = resolve_cc12m_root(args.cc12m_root, args.data_dir)
+    try:
+        return {'A': validate_caption_receipt(args.cc12m_root, args.data_dir)}
+    except (ValueError, FileNotFoundError) as exc:
+        raise ValueError('CC12M caption_llava verification is required; run '
+                         'DOWNLOAD_DATA=1 bash setup.sh before training') from exc
+
+
+def data_streams(args, common):
+    from .data import WebDatasetStream
+    streams = {'A': WebDatasetStream(args.cc12m_root, **common)}
+    if args.cc12m_only:
+        if args.curated_root:
+            print('CC12M-only: CURATED_ROOT is ignored.', flush=True)
+    else:
+        streams['B'] = WebDatasetStream(args.curated_root, **common)
+    return streams
+
+
+def restore_data_streams(streams, metadata, rank, audit_path=None):
+    # A-only -> B admission was checked before claiming the new output. B stays
+    # freshly constructed, exactly as in the full recipe at the A boundary.
+    states = metadata.get('data_states')
+    current = states[rank] if isinstance(states, list) and 0 <= rank < len(states) else None
+    expected = set(metadata['data'])
+    values = dict(rank=rank, state_count=len(states) if isinstance(states, list) else None,
+                  expected_processes=metadata['layout']['processes'],
+                  expected_stages=sorted(expected), stream_stages=sorted(streams),
+                  actual_stages=sorted(current) if isinstance(current, dict) else None,
+                  data_state=current)
+    valid = (values['state_count'] == values['expected_processes']
+             and isinstance(current, dict) and set(current) == expected
+             and expected <= set(streams))
+    if audit_path is None:
+        directory = tempfile.mkdtemp(prefix='stage1-data-restore-', dir=os.environ.get('TMPDIR', '/tmp'))
+        audit_path = Path(directory) / 'preflight.json'
+    atomic_json(audit_path, dict(gate='restore_data_plan', values=values, passed=False,
+                                 cursors_match_plan=valid))
+    if not valid:
+        raise ValueError('Checkpoint data cursors differ from its bound data plan')
+    for stage, cursor in current.items():
+        streams[stage].load_state_dict(cursor)
+    atomic_json(audit_path, dict(gate='restore_data_plan', values=values, passed=True,
+                                 cursors_match_plan=True))
 
 
 def main(argv=None):
@@ -269,7 +324,8 @@ def main(argv=None):
     # Persist every numerical gate input before raising, even on failure.
     topology = runtime_topology_gate(distributed)
     gate = dict(steps=args.steps, checkpoint_every=args.checkpoint_every,
-                microbatch=args.microbatch, max_steps=290000,
+                microbatch=args.microbatch, max_steps=plan_steps(recipe, args.cc12m_only),
+                data_plan=plan_name(args.cc12m_only),
                 processes=jax.process_count(), local_devices=jax.local_device_count(),
                 global_devices=jax.device_count(), global_batch=recipe.global_batch,
                 smoke=args.smoke, devices=[str(d) for d in jax.local_devices()],
@@ -277,8 +333,8 @@ def main(argv=None):
     try:
         layout = batch_layout(recipe.global_batch, jax.process_count(),
                               jax.local_device_count(), args.microbatch)
-        valid = (0 < args.steps <= 290000 and args.checkpoint_every > 0
-                 and (args.smoke or args.steps == 290000)
+        valid = (valid_steps(args.steps, args.smoke, recipe, args.cc12m_only)
+                 and args.checkpoint_every > 0
                  and topology['passed'])
     except ValueError:
         layout = None; valid = False
@@ -290,18 +346,22 @@ def main(argv=None):
         atomic_json(audit, gate)
         print('Rejected configuration receipt: ' + str(audit), file=sys.stderr, flush=True)
         raise ValueError('Invalid production configuration; inspect preflight receipt')
+    if (out / 'owner.json').exists():
+        previous = read_run_owner(out)['binding']
+        if previous.get('data_plan') != plan_name(args.cc12m_only):
+            raise ValueError(plan_mismatch_message(previous))
+    captions = caption_data_binding(args)
     assets = dict(t5=validate_assets(args.t5_model, 't5'),
                   perceptual=validate_assets(args.perceptual_dir, 'perceptual'))
-    from .data import WebDatasetStream
     from .model import build_model
     from .perceptual import load_perceptual
     from .text import load_text_encoder
     common = dict(process_index=rank, process_count=jax.process_count(), seed=recipe.seed,
                   image_size=recipe.image_size)
-    streams = {'A': WebDatasetStream(args.cc12m_root, **common),
-               'B': WebDatasetStream(args.curated_root, **common)}
+    streams = data_streams(args, common)
     binding = dict(source_sha256=source, recipe=recipe.as_dict(), noise=args.noise,
-                   layout=layout, assets=assets,
+                   layout=layout, assets=assets, data_plan=plan_name(args.cc12m_only),
+                   data_captions=captions,
                    data={stage: stream.manifest_sha256 for stage, stream in streams.items()})
     # No existing output file is written until source/configuration/data/assets
     # and the exact resume provenance have passed the run admission gate.
@@ -323,10 +383,11 @@ def main(argv=None):
                     jnp.zeros((1,256,1024)), jnp.ones((1,256)))['params'])(jax.random.PRNGKey(recipe.seed))
     state = create_state(params, recipe)
     if args.resume:
-        state, metadata = restore_checkpoint(args.resume, state, {**binding, 'run_identity': parent_run},
+        state, metadata = restore_checkpoint(args.resume, state,
+                                             {**parent_run['binding'], 'run_identity': parent_run},
                                              audit_path=out / f'restore-gate-rank{rank}.json')
-        for stage in ('A', 'B'):
-            streams[stage].load_state_dict(metadata['data_states'][rank][stage])
+        restore_data_streams(streams, metadata, rank,
+                             audit_path=out / f'restore-data-gate-rank{rank}.json')
     start = int(np.asarray(state.step))
     atomic_json(out / f'resume-rank{rank}.json', dict(start_step=start, target_step=args.steps,
                                                    passed=start < args.steps))

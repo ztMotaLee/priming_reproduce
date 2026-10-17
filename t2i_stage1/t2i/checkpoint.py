@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 
 import jax
@@ -11,6 +12,7 @@ from flax import serialization
 
 from .run_identity import (canonical_bytes, directory_identity, new_run_identity,
                            validate_run_identity)
+from .data_plan import plan_mismatch_message, stage_b_admission
 
 
 def sha256(path):
@@ -64,7 +66,14 @@ def read_run_owner(output):
 def checkpoint_provenance(path):
     """Read and verify the exact parent before claiming or writing an output."""
     path = Path(path).resolve()
-    receipt = verify_checkpoint(path)
+    directory = tempfile.mkdtemp(prefix='stage1-parent-', dir=os.environ.get('TMPDIR', '/tmp'))
+    audit = Path(directory) / 'preflight.json'
+    try:
+        receipt = verify_checkpoint(path, audit_path=audit)
+    except (ValueError, TypeError):
+        if audit.exists():
+            print('Rejected parent receipt: ' + str(audit), file=sys.stderr, flush=True)
+        raise
     metadata = _read_json(path / 'metadata.json')
     run = _metadata_identity(metadata)
     pin = dict(path=str(path), step=int(receipt['step']),
@@ -82,11 +91,28 @@ def claim_run(output, binding, resume='', *, create=True):
     """
     output = Path(output).resolve()
     parent, pin = checkpoint_provenance(resume) if resume else (None, None)
-    if parent is not None and parent['run_identity']['binding'] != binding:
-        raise ValueError('Resume configuration/data/assets differ; use a new output directory for a fresh run')
     owner = output / 'owner.json'
     if os.path.lexists(owner):
         run = read_run_owner(output)
+        if run['binding'].get('data_plan') != binding.get('data_plan'):
+            raise ValueError(plan_mismatch_message(run['binding']))
+    if parent is not None and parent['run_identity']['binding'] != binding:
+        gate = stage_b_admission(parent, binding, pin['step'])
+        gate['new_output'] = not os.path.lexists(owner) and not any(output.iterdir())
+        gate['passed'] = gate['passed'] and gate['new_output']
+        directory = tempfile.mkdtemp(prefix='stage1-continuation-',
+                                     dir=os.environ.get('TMPDIR', '/tmp'))
+        audit = Path(directory) / 'preflight.json'
+        atomic_json(audit, gate)
+        print('Stage B admission receipt: ' + str(audit), flush=True)
+        if not gate['passed']:
+            failed = [key for key, passed in gate['checks'].items() if not passed]
+            if not gate['new_output']:
+                failed.append('new_output')
+            raise ValueError('Resume configuration/data/assets differ; Stage B requires '
+                             'a new output directory and an exact CC12M-only '
+                             'step-250000 parent; failed: ' + ', '.join(failed))
+    if os.path.lexists(owner):
         if (parent is None or run['binding'] != binding
                 or parent['run_identity'] != run):
             raise ValueError('Resume run identity differs from output owner; use a new output directory')

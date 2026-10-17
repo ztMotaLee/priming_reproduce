@@ -457,8 +457,74 @@ def prepare_cc12m(data_dir, processes, threads):
                     "--number_sample_per_shard", "10000", "--enable_wandb", "False"], check=True)
     files = {p.name: sha256(p) for p in expand_shards(output)}
     atomic_json(output / "preparation.json", {"files": files, "source": REMOTE_LOCK["cc12m"],
+                                            "caption_source": "caption_llava",
                                             "note": "URL availability changes realized sample count; inspect img2dataset stats."},
                 create_once=True)
+
+
+def cc12m_root_identity(root):
+    """Bind paths across GPFS mounts without their node-local device number."""
+    from .run_identity import directory_identity
+    path = Path(root).resolve()
+    if path.exists():
+        return directory_identity(path)
+    return {"path": str(path), "shards": [shard_identity(p) for p in expand_shards(root)]}
+
+
+def record_cc12m_mapping(original, resolved, data_dir):
+    from .recaption import validate_caption_receipt
+    value = dict(original=cc12m_root_identity(original), resolved=str(Path(resolved).resolve()),
+                 caption=validate_caption_receipt(resolved, data_dir))
+    atomic_json(Path(data_dir) / "cc12m_root_mapping.json", value, create_once=True)
+
+
+def resolve_cc12m_root(root, data_dir):
+    """Honor a setup-created original-root mapping even in exported environments."""
+    from .recaption import validate_caption_receipt
+    mapping = Path(data_dir) / "cc12m_root_mapping.json"
+    if not mapping.is_file():
+        return str(root)
+    value = json.loads(mapping.read_text())
+    if str(Path(root).resolve()) != value["original"]["path"]:
+        return str(root)
+    if cc12m_root_identity(root) != value["original"]:
+        raise ValueError("Original CC12M root identity changed; run DOWNLOAD_DATA=1 bash setup.sh")
+    caption = validate_caption_receipt(value["resolved"], data_dir)
+    if caption != value["caption"]:
+        raise ValueError("Mapped LLaVA caption receipt changed; run DOWNLOAD_DATA=1 bash setup.sh")
+    print(f"CC12M caption mapping: {root} -> {value['resolved']}", file=sys.stderr, flush=True)
+    return value["resolved"]
+
+
+def prepare_existing_cc12m(root, data_dir, processes, metadata=None):
+    """Check a supplied root and recaption it without touching any input file."""
+    from .recaption import (CaptionVerificationError, check_caption_write_paths, ensure_caption_receipt,
+                            recaption, validate_caption_receipt)
+    resolved = resolve_cc12m_root(root, data_dir)
+    try:
+        validate_caption_receipt(resolved, data_dir)
+        return resolved
+    except (ValueError, FileNotFoundError):
+        pass
+    if (Path(resolved) / "preparation.json").is_file():
+        try:
+            ensure_caption_receipt(resolved, data_dir)
+            return resolved
+        except CaptionVerificationError:
+            pass
+    check_caption_write_paths(root, data_dir, output=Path(data_dir) / "cc12m_llava",
+                              download=metadata is None, verify=True, mapping=True)
+    if metadata is None:
+        metadata = download_group("cc12m", Path(data_dir) / "raw" / "cc12m") / "train.jsonl.gz"
+    try:
+        ensure_caption_receipt(resolved, data_dir, metadata=metadata)
+        return resolved
+    except CaptionVerificationError:
+        output = Path(data_dir) / "cc12m_llava"
+        recaption(root, output, metadata=metadata, processes=processes, data_dir=data_dir)
+        ensure_caption_receipt(output, data_dir)
+        record_cc12m_mapping(root, output, data_dir)
+        return str(output)
 
 
 def prepare_dalle3(data_dir):
@@ -548,25 +614,55 @@ def prepare_curated(data_dir, t5_model):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("plan", "t5", "datasets", "check"))
+    parser.add_argument("command", choices=("plan", "t5", "datasets", "check", "recaption", "resolve"))
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--t5-model", type=Path)
     parser.add_argument("--download", action="store_true")
     parser.add_argument("--cc12m-root", default="")
     parser.add_argument("--curated-root", default="")
+    parser.add_argument("--cc12m-only", action="store_true",
+                        help="Prepare/check only CC12M (paper Stage A); ignore --curated-root")
     parser.add_argument("--processes", type=int, default=8)
     parser.add_argument("--threads", type=int, default=32)
+    parser.add_argument("--metadata", type=Path)
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    if args.cc12m_only and args.curated_root:
+        print("CC12M-only: ignoring CURATED_ROOT/--curated-root.", file=sys.stderr)
     data_dir = args.data_dir.resolve()
     t5_model = (args.t5_model or data_dir / "assets" / "t5").resolve()
     if args.command == "plan":
         print(json.dumps({key: {"repository": lock["repo_id"], "revision": lock["revision"],
                                 "download_bytes": sum(f["size"] for f in lock["files"])}
                           for key, lock in REMOTE_LOCK.items()}, indent=2))
+    elif args.command == "resolve":
+        if not args.cc12m_root:
+            parser.error("--cc12m-root is required")
+        print(resolve_cc12m_root(args.cc12m_root, data_dir))
+    elif args.command == "recaption":
+        if not args.cc12m_root or not args.output or args.processes < 1:
+            parser.error("recaption requires --cc12m-root, --output and positive --processes")
+        from .recaption import check_recaption_output, recaption
+        check_recaption_output(args.cc12m_root, args.output, data_dir=data_dir,
+                               download=args.metadata is None)
+        metadata = args.metadata
+        if metadata is None:
+            metadata = data_dir / "raw" / "cc12m" / "train.jsonl.gz"
+            if not metadata.is_file():
+                metadata = download_group("cc12m", metadata.parent) / "train.jsonl.gz"
+        print(json.dumps(recaption(args.cc12m_root, args.output, metadata=metadata,
+                                   processes=args.processes, data_dir=data_dir), sort_keys=True))
     elif args.command == "check":
-        for root in (args.cc12m_root, args.curated_root):
+        roots = (args.cc12m_root,) if args.cc12m_only else (args.cc12m_root, args.curated_root)
+        for index, root in enumerate(roots):
             if not root:
-                raise ValueError("Both CC12M_ROOT and CURATED_ROOT must be set")
+                raise ValueError("CC12M_ROOT must be set" if args.cc12m_only
+                                 else "Both CC12M_ROOT and CURATED_ROOT must be set")
+            caption = None
+            if index == 0:
+                from .recaption import ensure_caption_receipt
+                root = resolve_cc12m_root(root, data_dir)
+                caption = ensure_caption_receipt(root, data_dir, metadata=args.metadata)
             path = Path(root)
             spec_path = path / "sources.json" if path.is_dir() and (path / "sources.json").is_file() else path
             if spec_path.suffix == ".json":
@@ -577,7 +673,8 @@ def main():
                 identities = [shard_identity(p) for p in expand_shards(root)]
             print(json.dumps({"root": root, "shards": len(identities),
                               "bytes": sum(p["size"] for p in identities),
-                              "identity_sha256": hashlib.sha256(json.dumps(identities, sort_keys=True).encode()).hexdigest()}))
+                              "identity_sha256": hashlib.sha256(json.dumps(identities, sort_keys=True).encode()).hexdigest(),
+                              **({"caption": caption} if caption else {})}))
     else:
         if not args.download:
             parser.error("Network preparation requires explicit --download; use plan to inspect sizes")
@@ -588,7 +685,9 @@ def main():
                 parser.error("Download process/thread counts must be positive")
             if not args.cc12m_root:
                 prepare_cc12m(data_dir, args.processes, args.threads)
-            if not args.curated_root:
+            else:
+                prepare_existing_cc12m(args.cc12m_root, data_dir, args.processes, args.metadata)
+            if not args.cc12m_only and not args.curated_root:
                 prepare_curated(data_dir, t5_model)
 
 

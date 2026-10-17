@@ -10,11 +10,20 @@ for environment installation, downloads and pretrained-weight conversion. Run
 training in a GPU allocation with shared access to the prepared files:
 
 ```bash
-CC12M_ROOT=/shared/cc12m CURATED_ROOT=/shared/curated/sources.json DATA_DIR=/shared/stage1 bash setup.sh
+export CC12M_ROOT=/A/B/C
+export DATA_DIR=/shared/stage1
+export OUTPUT_DIR=/shared/run-stage1
+DOWNLOAD_DATA=1 bash setup.sh
 bash train.sh
 ```
 
-`setup.sh` saves paths in `.stage1.env`; later environment overrides take precedence.
+MiniT2I's preparation code uses `caption_llava`; this is a recipe inference for
+Priming, whose paper states CC12M built on MiniT2I without naming its caption field.
+Setup verifies existing captions, creates `$DATA_DIR/cc12m_llava` when they differ,
+and records the resolved root in `.stage1.env`; this needs roughly the original
+CC12M tar size in free space, metadata/index space and CPU conversion time.
+Later environment overrides take precedence, with one explicit exception: an
+exported original CC12M root recorded by setup resolves to its verified LLaVA copy.
 It creates `.venv`, installs the upstream requirements with compatible pins, and
 downloads frozen T5 and perceptual assets, then prepares their local payloads.
 Setup requires internet; training uses those local assets offline with
@@ -51,6 +60,67 @@ so setup does not require activating the virtual environment or changing PATH.
 This is a large, explicit download. Nothing is downloaded by DRY_RUN:
 `DRY_RUN=1 bash setup.sh`. `JAX_PLATFORM=cpu` selects an environment for tiny unit tests;
 the production trainer requires GPUs.
+
+## CC12M only
+
+Use existing CC12M shards without downloading or providing the curated mixture:
+
+```bash
+export CC12M_ONLY=1
+export CC12M_ROOT=/A/B/C
+export DATA_DIR=/shared/stage1
+export OUTPUT_DIR=/shared/run-cc12m
+DOWNLOAD_DATA=1 bash setup.sh
+bash train.sh
+```
+
+This is the paper's Stage A unchanged: 250,000 updates, global batch 1024,
+constant learning rate 4e-4, and the same model, noise, losses, AdamW, EMA and RNG
+stream. The final checkpoint is `/shared/run-cc12m/checkpoint_00250000`.
+Curated data is never downloaded, checked or read, even if `CURATED_ROOT` is set.
+With `DOWNLOAD_DATA=1`, a supplied original-caption root is automatically
+recaptioned; without `CC12M_ROOT`, setup downloads CC12M images as before:
+
+```bash
+CC12M_ONLY=1 DATA_DIR=/shared/stage1 OUTPUT_DIR=/shared/run-cc12m DOWNLOAD_DATA=1 bash setup.sh
+bash train.sh
+```
+
+That downloads 3.58 GB of CC12M URL metadata plus available images; it skips the
+231.45 GB curated raw download. Frozen model assets are still required.
+`CC12M_ONLY` accepts only `0` or `1` and defaults to `0`. Setup stores the choice
+in `.stage1.env`; explicit environment settings take precedence. Set it to `0`
+when running setup again to restore the paper's full 290,000-update data plan.
+`DRY_RUN=1 CC12M_ONLY=1 bash setup.sh` and
+`DRY_RUN=1 CC12M_ONLY=1 bash train.slurm` show the plan and actual commands.
+The direct Python switches are `python -m t2i.train --cc12m-only` and
+`python -m t2i.prepare datasets|check --cc12m-only` (with the usual path arguments).
+
+CC12M-only is a deviation with **no reported paper score**. The paper's GenEval
+0.818 follows the full recipe, including Stage A, Stage B and subsequent
+distributional post-training; it is not a CC12M-only result.
+
+To add the 40,000-update Stage B later, continue from the completed Stage-A checkpoint
+in a **new** output directory. Setup then downloads only the curated mixture:
+
+```bash
+source .stage1.env
+export CC12M_ONLY=0
+export OUTPUT_DIR=/shared/run-stage-b
+DOWNLOAD_DATA=1 bash setup.sh
+RESUME=/shared/run-cc12m/checkpoint_00250000 bash train.sh
+```
+
+A CC12M-only setup does not save `CURATED_ROOT` in `.stage1.env`, so this setup
+prepares `DATA_DIR/curated/sources.json`; set `CURATED_ROOT` instead if the
+curated mixture is already prepared elsewhere.
+Keep the same code, assets, noise setting, GPU layout and CC12M paths. Admission
+requires a CC12M-only parent at exactly step 250,000, with every existing binding
+unchanged; only the curated manifest is added. Optimizer, EMA, RNG, step and the
+CC12M cursor continue unchanged, and the curated cursor starts from its initial
+state. The final checkpoint is `/shared/run-stage-b/checkpoint_00290000`.
+Changing data plans in an existing output directory is rejected; restore that
+run's `CC12M_ONLY` value or use the new-output continuation above.
 
 ## Multiple nodes and restart
 
@@ -92,14 +162,15 @@ its path. It performs no training or submission, but it is not a zero-write chec
 Resume uses an **exact checkpoint directory**. It may reuse its owned output
 directory or write into a new empty output directory.
 Each fresh run gets a unique launch ID. Its immutable run identity binds the
-source, recipe, noise mode, batch layout, A/B data manifests and asset manifests.
+source, recipe, noise mode, batch layout, data plan, selected data manifests and asset manifests.
 The output's create-once `owner.json` and every checkpoint carry this identity.
 An existing output accepts only its own latest checkpoint and matching identity;
 another run, a changed configuration, or an older checkpoint fails before writing
 that output. Use a new empty output directory for a separate run or branch.
 A branch from a checkpoint gets a new identity that pins its parent's exact
 receipt/manifest SHA and run identity. Source/configuration/data/assets must still
-match the parent for exact continuation. Old checkpoints without this identity
+match the parent for exact continuation, with the single Stage-A→Stage-B
+exception described above. Old checkpoints without this identity
 are rejected; this revision does not migrate previous run outputs automatically.
 Target steps and checkpoint intervals are launch controls outside the identity,
 so 20→30 continuation and USR1 resubmission keep the same identity even when the
@@ -237,6 +308,50 @@ Its URL images are downloaded with `img2dataset` using `caption_llava`, then
 WebDataset output and `resize_mode=no`, as in the official JAX preparation recipe.
 Original URLs may be dead; inspect the generated img2dataset statistics for the
 realized sample count. There is no verified complete CC12M pixel mirror here.
+
+For an existing CC12M directory, setup never rewrites input shards. It downloads
+and verifies the pinned metadata only when needed, builds a disk-backed URL
+index under `DATA_DIR`, and copies matching samples into same-named output
+shards. Image bytes, sample keys and order are preserved; `.txt` is replaced by
+`caption_llava`. URL lookup uses sample JSON first, then the same-shard Parquet
+exact full-key-to-URL table, without a basename fallback. No URL for the exact
+key makes the shard fail; no metadata match or unresolved
+duplicate-URL captions drop the sample with a recorded reason. Conflicting
+duplicate URLs use original captions only for disambiguation. Free space must
+be at least 1.05 times input tar bytes; total retention below 50% fails after
+recording the exact counts. Each completed shard has an atomic receipt and can
+be resumed; an interrupted temporary shard is never treated as complete.
+An output directory must be absent, empty, or carry the exact matching recaption
+plan before any writes are allowed, including CLI metadata downloads.
+Before setup, conversion or caption verification writes anything, the resolved
+metadata-download, index, receipt, mapping and output paths that it may write
+must be outside the input root. This also rejects symlinks into the input and
+collisions with cached metadata; an explicit metadata file is read-only and may
+remain inside the input. `DATA_DIR` itself may be an input ancestor when these
+derived write paths are separate. A contiguous
+key group with duplicate image, text or JSON members is rejected before publishing
+its shard or completion receipt;
+this also rejects consecutive complete records sharing a key rather than merging
+their captions.
+
+Standalone offline conversion and verification use:
+
+```bash
+python -m t2i.prepare recaption --cc12m-root /A/B/C --output /shared/stage1/cc12m_llava --data-dir /shared/stage1 --metadata /shared/stage1/raw/cc12m/train.jsonl.gz --processes 8
+python -m t2i.prepare check --cc12m-root /shared/stage1/cc12m_llava --data-dir /shared/stage1 --cc12m-only
+```
+
+Repository preparation receipts declaring `caption_source=caption_llava` are
+verified against their source lock and files. Other roots require deterministic
+sampling of up to 2,000 samples across shards with at least 99% exact caption
+matches against the pinned metadata. Caption verification receipts bind root
+identity without `st_dev`; training requires a valid receipt and includes its
+SHA in checkpoint data bindings. Changing caption provenance cannot resume the
+same run. `DATA_DIR/cc12m_root_mapping.json` binds an original root to the
+verified copy, so the README's still-exported `CC12M_ROOT=/A/B/C`, `--export=ALL`
+and later `source .stage1.env` all use LLaVA captions. A changed original root or
+copy receipt fails closed. Without `DOWNLOAD_DATA=1`, a nonverified root fails
+with the command needed to prepare it.
 
 The **“120K” name is approximate**, not an exact-count claim. Source weights
 0.06:0.016:0.04 come from MiniT2I's published B/16 fine-tuning config.

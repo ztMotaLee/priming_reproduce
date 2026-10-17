@@ -82,6 +82,7 @@ class PrepareCliTests(unittest.TestCase):
         self.assertEqual(json.loads((raw / "parquet" / "part-00000.parquet").read_text()),
                          [{"url": "https://example.invalid/image.jpg", "caption": "long recaption", "key": "0"}])
         receipt = json.loads((root / "data" / "cc12m" / "preparation.json").read_text())
+        self.assertEqual(receipt["caption_source"], "caption_llava")
         self.assertEqual(receipt["files"], {"part-00000.tar": prepare.sha256(root / "data" / "cc12m" / "part-00000.tar")})
         self.assertFalse(stale_marker.exists())
 
@@ -129,7 +130,8 @@ class PrepareCheckCliTests(unittest.TestCase):
     def run_check(self, cc12m, curated, *, output=None):
         output = io.StringIO() if output is None else output
         argv = ["prepare", "check", "--cc12m-root", str(cc12m), "--curated-root", str(curated)]
-        with mock.patch.object(sys, "argv", argv), mock.patch("sys.stdout", output):
+        with mock.patch.object(sys, "argv", argv), mock.patch("sys.stdout", output), \
+             mock.patch("t2i.recaption.ensure_caption_receipt", return_value={"caption_source": "caption_llava"}):
             # Keep main(), argument parsing, shard discovery and file identity
             # checks real so directory dispatch failures cross the CLI boundary.
             prepare.main()

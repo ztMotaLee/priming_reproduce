@@ -1,4 +1,6 @@
-> **Priming T2I Stage 1:** start with [the two-command setup/train guide](t2i/README.md). The upstream Mean Flow documentation follows below.
+> **Priming T2I Stage 1:** start with [the setup/train guide](t2i/README.md). Existing CC12M roots are checked for `caption_llava`; `DOWNLOAD_DATA=1 bash setup.sh` creates a verified caption copy when required. The upstream Mean Flow documentation follows below.
+
+To train on CC12M only (paper Stage A, no curated download), see [CC12M only](t2i/README.md#cc12m-only).
 
 <p align="center">
   <img src="assets/teaser.png" alt="MiniT2I logo" />
