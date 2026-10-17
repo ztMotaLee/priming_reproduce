@@ -25,18 +25,33 @@ See [the short guide](STAGE1_PURE_NOISE.md) for options and expected behavior.
 
 ## Quick start: T2I Stage-1 (512px text-to-image, JAX)
 
+If CC12M is already on your cluster (here `/A/B/C`, a folder of WebDataset `.tar` shards),
+run these lines in order. Run the `setup.sh` line on a node with internet; training runs offline.
+
 ```bash
-cd t2i_stage1
-CC12M_ROOT=/shared/cc12m CURATED_ROOT=/shared/curated/sources.json DATA_DIR=/shared/stage1 bash setup.sh
-bash train.sh
+git clone https://github.com/ztMotaLee/priming_reproduce.git
+cd priming_reproduce/t2i_stage1
+export CC12M_ROOT=/A/B/C                         # existing CC12M shards
+export DATA_DIR=/A/B/priming_t2i                 # shared disk, ~250 GB free
+export OUTPUT_DIR=/A/B/priming_t2i/runs/stage1   # shared disk for checkpoints
+DOWNLOAD_DATA=1 bash setup.sh                     # env + T5/perceptual weights + curated mix (reuses CC12M)
+sbatch --nodes=16 --gpus-per-node=8 --partition=YOUR_PARTITION --account=YOUR_ACCOUNT --export=ALL --no-requeue train.slurm
 ```
 
-This trains Priming's **T2I reconstruction Stage 1** on MiniT2I-JAX (MIT): MM-JiT-B/16 with no
-time input, frozen FLAN-T5-Large, 512×512 pixels. Run `setup.sh` on a node with internet;
-training runs offline. For many nodes:
-`sbatch --nodes=16 --gpus-per-node=8 --export=ALL --no-requeue train.slurm` (add your partition/account).
-Checked with a 4× H100 smoke run (20 updates, then resume to 30). See
-[the T2I guide](t2i_stage1/t2i/README.md) for data, options and inferred settings.
+Each job runs up to 24 hours. It saves a checkpoint every 5,000 updates and when Slurm sends the time-limit warning. To continue, open a
+new shell in `priming_reproduce/t2i_stage1` and run:
+
+```bash
+source .stage1.env
+export RESUME=$OUTPUT_DIR/$(python3 -c "import json,os; print(json.load(open(os.environ['OUTPUT_DIR'] + '/latest.json'))['checkpoint'])")
+sbatch --nodes=16 --gpus-per-node=8 --partition=YOUR_PARTITION --account=YOUR_ACCOUNT --export=ALL --no-requeue train.slurm
+```
+
+Keep the same number of nodes when resuming. On a single 8-GPU node, use `bash train.sh`
+instead of `sbatch`. Each CC12M shard must hold `{key}.jpg` (or `.png`) and `{key}.txt` pairs;
+MiniT2I uses the LLaVA-recaptioned CC12M, so other captions change the recipe.
+`setup.sh` writes `DATA_DIR/curated/sources.json` for the curated mix. Checked with a
+4× H100 smoke run (20 updates, then resume to 30). See [the T2I guide](t2i_stage1/t2i/README.md).
 
 | Setting | Value (paper App. C.2) |
 |---|---|
