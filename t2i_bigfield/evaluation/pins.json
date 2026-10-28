@@ -1,0 +1,219 @@
+{
+  "dpg_answers": 57568,
+  "dpg_caption_noise_list_sha256": "e114885e4c99baeadc3a0a85a6738607fe2927e429caffe3653c7ad5728a90ef",
+  "dpg_prompt_archive_url": "https://codeload.github.com/TencentQQGYLab/ELLA/tar.gz/3c228f1dc6c4d3cad0a47493816151a419f14db3",
+  "dpg_prompts": 1065,
+  "dpg_prompts_sha256": "b7fc9516d9ad5135664d17729cb7771aa7e3cf2bff4973dfd0053776973164eb",
+  "dpg_questions": 14392,
+  "files": [
+    {
+      "bytes": 11597,
+      "path": "sources/geneval/evaluation/evaluate_images.py",
+      "scope": "geneval",
+      "sha256": "c0fdeb8315f7d3ed72b56f466652afba5216f854109c6eeea339f9982474ea46",
+      "url": "https://raw.githubusercontent.com/djghosh13/geneval/af4902f24d3ca90ebbb446dd9891a59e0f82725f/evaluation/evaluate_images.py"
+    },
+    {
+      "bytes": 642,
+      "path": "sources/geneval/evaluation/object_names.txt",
+      "scope": "geneval",
+      "sha256": "608f6a0e5c8ca1c7a92b818430141fe268c85b7930b50f4160f1d65893b5bacd",
+      "url": "https://raw.githubusercontent.com/djghosh13/geneval/af4902f24d3ca90ebbb446dd9891a59e0f82725f/evaluation/object_names.txt"
+    },
+    {
+      "bytes": 2079,
+      "path": "sources/mmdetection/configs/_base_/datasets/coco_panoptic.py",
+      "scope": "geneval",
+      "sha256": "3593f1e78cf0e1fea61db7b466276a8e5a98e8aeabc49442cc783a73b2fff6ad",
+      "url": "https://raw.githubusercontent.com/open-mmlab/mmdetection/e9cae2d0787cd5c2fc6165a6061f92fa09e48fb1/configs/_base_/datasets/coco_panoptic.py"
+    },
+    {
+      "bytes": 791,
+      "path": "sources/mmdetection/configs/_base_/default_runtime.py",
+      "scope": "geneval",
+      "sha256": "9a6abfe8d66001e7d5757ea543ebb04f989613cc669935dfc3ce1b404e1e7667",
+      "url": "https://raw.githubusercontent.com/open-mmlab/mmdetection/e9cae2d0787cd5c2fc6165a6061f92fa09e48fb1/configs/_base_/default_runtime.py"
+    },
+    {
+      "bytes": 8600,
+      "path": "sources/mmdetection/configs/mask2former/mask2former_r50_lsj_8x2_50e_coco-panoptic.py",
+      "scope": "geneval",
+      "sha256": "113fca77d3a9ec8940f9d06e9144e83ca0c6e1d879dc604c7008d312581ee729",
+      "url": "https://raw.githubusercontent.com/open-mmlab/mmdetection/e9cae2d0787cd5c2fc6165a6061f92fa09e48fb1/configs/mask2former/mask2former_r50_lsj_8x2_50e_coco-panoptic.py"
+    },
+    {
+      "bytes": 2781,
+      "path": "sources/mmdetection/configs/mask2former/mask2former_r50_lsj_8x2_50e_coco.py",
+      "scope": "geneval",
+      "sha256": "48fd0b34abbe6f0bff0c8243a5daa4e3a0c4de4648a838bb94c6a85a8ff3bb95",
+      "url": "https://raw.githubusercontent.com/open-mmlab/mmdetection/e9cae2d0787cd5c2fc6165a6061f92fa09e48fb1/configs/mask2former/mask2former_r50_lsj_8x2_50e_coco.py"
+    },
+    {
+      "bytes": 1457,
+      "path": "sources/mmdetection/configs/mask2former/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py",
+      "scope": "geneval",
+      "sha256": "9074c4681870644756c0c5b813995bc06749844be8f24fb2eca3e494d5b9eadb",
+      "url": "https://raw.githubusercontent.com/open-mmlab/mmdetection/e9cae2d0787cd5c2fc6165a6061f92fa09e48fb1/configs/mask2former/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.py"
+    },
+    {
+      "bytes": 2056,
+      "path": "sources/mmdetection/configs/mask2former/mask2former_swin-t-p4-w7-224_lsj_8x2_50e_coco.py",
+      "scope": "geneval",
+      "sha256": "741352d9f904cabd61fdc58cf3742887de289f72791ec4c38c565d113695c301",
+      "url": "https://raw.githubusercontent.com/open-mmlab/mmdetection/e9cae2d0787cd5c2fc6165a6061f92fa09e48fb1/configs/mask2former/mask2former_swin-t-p4-w7-224_lsj_8x2_50e_coco.py"
+    },
+    {
+      "bytes": 85209,
+      "path": "benchmarks/geneval/evaluation_metadata.jsonl",
+      "scope": "geneval",
+      "sha256": "5c48e0813e812e3c373fa5c8ed07a8f0a483be30272b4427b0559c8048e67c13",
+      "url": "https://raw.githubusercontent.com/djghosh13/geneval/af4902f24d3ca90ebbb446dd9891a59e0f82725f/prompts/evaluation_metadata.jsonl"
+    },
+    {
+      "bytes": 8949,
+      "path": "sources/ella/compute_dpg_bench.py",
+      "scope": "dpg",
+      "sha256": "0b2aa9977974e6df26efe93eef056f39aa9e1e3a517126ed329745e7ff37e03d",
+      "url": "https://raw.githubusercontent.com/TencentQQGYLab/ELLA/3c228f1dc6c4d3cad0a47493816151a419f14db3/dpg_bench/compute_dpg_bench.py"
+    },
+    {
+      "bytes": 7353826,
+      "path": "benchmarks/dpg/dpg_bench.csv",
+      "scope": "dpg",
+      "sha256": "68f507652a49aaa4f103f17bbf25e2322a9a318dc61380e6534b749fbf9317aa",
+      "url": "https://raw.githubusercontent.com/TencentQQGYLab/ELLA/3c228f1dc6c4d3cad0a47493816151a419f14db3/dpg_bench/dpg_bench.csv"
+    },
+    {
+      "bytes": 1069,
+      "path": "sources/geneval/LICENSE",
+      "scope": "geneval",
+      "sha256": "e6082bfcbdf460dd19f8c55cc261055414df2a278768b4991c5382d65be2b52a",
+      "url": "https://raw.githubusercontent.com/djghosh13/geneval/af4902f24d3ca90ebbb446dd9891a59e0f82725f/LICENSE"
+    },
+    {
+      "bytes": 11357,
+      "path": "sources/ella/LICENSE",
+      "scope": "dpg",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "url": "https://raw.githubusercontent.com/TencentQQGYLab/ELLA/3c228f1dc6c4d3cad0a47493816151a419f14db3/LICENSE"
+    },
+    {
+      "bytes": 11398,
+      "path": "sources/mmdetection/LICENSE",
+      "scope": "geneval",
+      "sha256": "874b8b2e6f12306a1ff7812c068a0dbf880418b8ac1f7190382bd6c6da9f23a1",
+      "url": "https://raw.githubusercontent.com/open-mmlab/mmdetection/e9cae2d0787cd5c2fc6165a6061f92fa09e48fb1/LICENSE"
+    },
+    {
+      "bytes": 275630991,
+      "path": "models/geneval/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco.pth",
+      "scope": "geneval",
+      "sha256": "743b7d99015f1224c6d57fd4b14d04b15cc8ec72ae7ee7831e7c71d8873b7a54",
+      "url": "https://download.openmmlab.com/mmdetection/v2.0/mask2former/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco/mask2former_swin-s-p4-w7-224_lsj_8x2_50e_coco_20220504_001756-743b7d99.pth"
+    },
+    {
+      "bytes": 932768134,
+      "path": "models/open_clip/ViT-L-14.pt",
+      "scope": "geneval",
+      "sha256": "b8cca3fd41ae0c99ba7e8951adf17d267cdb84cd88be6f7c2e0eca1737a03836",
+      "url": "https://openaipublic.azureedge.net/clip/models/b8cca3fd41ae0c99ba7e8951adf17d267cdb84cd88be6f7c2e0eca1737a03836/ViT-L-14.pt"
+    },
+    {
+      "bytes": 1261,
+      "path": "models/mplug/.gitattributes",
+      "scope": "dpg",
+      "sha256": "72ca7b39fa195fd0ce62b6ef41f56d1a6c0629cf8506a0cfcb0b297f04856cd5",
+      "url": "https://modelscope.cn/api/v1/models/damo/mplug_visual-question-answering_coco_large_en/repo?Revision=120506e7ccb196ca29100b8f4068bddbf3e57cc2&FilePath=.gitattributes"
+    },
+    {
+      "bytes": 2369643,
+      "path": "models/mplug/resources/case.png",
+      "scope": "dpg",
+      "sha256": "e806b101c00d1cc295cad4056d7ce63459768a8eb6a1c57fd9b8f424f3a2661d",
+      "url": "https://modelscope.cn/api/v1/models/damo/mplug_visual-question-answering_coco_large_en/repo?Revision=62c0175cee18929e53db298d3b2d398b81c15ac9&FilePath=resources/case.png"
+    },
+    {
+      "bytes": 813,
+      "path": "models/mplug/config.yaml",
+      "scope": "dpg",
+      "sha256": "ee1ca8b27e5e94b6b3a24d6101c9f9670e30e1808028de9f7fb66eedacfac9bc",
+      "url": "https://modelscope.cn/api/v1/models/damo/mplug_visual-question-answering_coco_large_en/repo?Revision=b17a33253e4aa615bf60d0aed4b1649b4a728490&FilePath=config.yaml"
+    },
+    {
+      "bytes": 644,
+      "path": "models/mplug/config_bert.json",
+      "scope": "dpg",
+      "sha256": "1d4d732051a51834b335cbb84ba8ecb809d4db8206facef1e1a8a114cea4433d",
+      "url": "https://modelscope.cn/api/v1/models/damo/mplug_visual-question-answering_coco_large_en/repo?Revision=d46c619e91be2d6b7864d227d65c3dd5066f96ad&FilePath=config_bert.json"
+    },
+    {
+      "bytes": 1370,
+      "path": "models/mplug/configuration.json",
+      "scope": "dpg",
+      "sha256": "d4fd409ce7a5982ae7abdc80b04316734d5d95b7edfb898d6bf19f371d22a29b",
+      "url": "https://modelscope.cn/api/v1/models/damo/mplug_visual-question-answering_coco_large_en/repo?Revision=0af3d6a3712dedd4acb20a2639b4257523caf787&FilePath=configuration.json"
+    },
+    {
+      "bytes": 495322,
+      "path": "models/mplug/resources/model.png",
+      "scope": "dpg",
+      "sha256": "9259f6e9f8a17dabebfe53ff853ff644361c09e8c1a5a9c49f05b38ed04afece",
+      "url": "https://modelscope.cn/api/v1/models/damo/mplug_visual-question-answering_coco_large_en/repo?Revision=62c0175cee18929e53db298d3b2d398b81c15ac9&FilePath=resources/model.png"
+    },
+    {
+      "bytes": 2989186229,
+      "path": "models/mplug/pytorch_model.bin",
+      "scope": "dpg",
+      "sha256": "702b1fcb760b1a2bb4ab7f7b0d6f540aad438716f9fdb602f85e121d5a371332",
+      "url": "https://modelscope.cn/api/v1/models/damo/mplug_visual-question-answering_coco_large_en/repo?Revision=d46c619e91be2d6b7864d227d65c3dd5066f96ad&FilePath=pytorch_model.bin"
+    },
+    {
+      "bytes": 6285,
+      "path": "models/mplug/README.md",
+      "scope": "dpg",
+      "sha256": "24c954bad3196158a569c26f7fae46230fa2b9338a990771788d4edf5ecb496c",
+      "url": "https://modelscope.cn/api/v1/models/damo/mplug_visual-question-answering_coco_large_en/repo?Revision=daafdd491bff674bd55183c9be43e56abc4f4ac1&FilePath=README.md"
+    },
+    {
+      "bytes": 231508,
+      "path": "models/mplug/vocab.txt",
+      "scope": "dpg",
+      "sha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+      "url": "https://modelscope.cn/api/v1/models/damo/mplug_visual-question-answering_coco_large_en/repo?Revision=8d030b22de1ace07ef9566abf5f51c0586858e28&FilePath=vocab.txt"
+    },
+    {
+      "bytes": 674439,
+      "path": "models/mplug/resources/vqa.png",
+      "scope": "dpg",
+      "sha256": "0b0c354d29462f66907f6091a223335cff28fe3ef2e617d99f7912b7907dcb71",
+      "url": "https://modelscope.cn/api/v1/models/damo/mplug_visual-question-answering_coco_large_en/repo?Revision=62c0175cee18929e53db298d3b2d398b81c15ac9&FilePath=resources/vqa.png"
+    },
+    {
+      "bytes": 386492,
+      "path": "models/mplug/resources/vqa_exp.png",
+      "scope": "dpg",
+      "sha256": "1e93643aed2ccdf40b08ec830c88306263b3eef5f98d0283f7c02d75e6ae1fe6",
+      "url": "https://modelscope.cn/api/v1/models/damo/mplug_visual-question-answering_coco_large_en/repo?Revision=62c0175cee18929e53db298d3b2d398b81c15ac9&FilePath=resources/vqa_exp.png"
+    }
+  ],
+  "geneval_prompts": 553,
+  "samples_per_prompt": 4,
+  "schema": "bigfield-evaluation-pins-v1",
+  "upstream": {
+    "ella": {
+      "license": "Apache-2.0",
+      "repository": "https://github.com/TencentQQGYLab/ELLA",
+      "revision": "3c228f1dc6c4d3cad0a47493816151a419f14db3"
+    },
+    "geneval": {
+      "license": "MIT",
+      "repository": "https://github.com/djghosh13/geneval",
+      "revision": "af4902f24d3ca90ebbb446dd9891a59e0f82725f"
+    },
+    "mmdetection": {
+      "license": "Apache-2.0",
+      "repository": "https://github.com/open-mmlab/mmdetection",
+      "revision": "e9cae2d0787cd5c2fc6165a6061f92fa09e48fb1"
+    }
+  }
+}

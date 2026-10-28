@@ -1,0 +1,882 @@
+{
+  "bank_reference": {
+    "canonical_image_rows_sha256": "cdf5dbe0a9f4b25a344ff996dc8629f4332b68b9ec29a15f726114bb00aa99fc",
+    "dtype": "float32",
+    "encoder_parameter_sha256": "d8ec3660b1d942936addda8c3613b0d533d2acb41727ae6d4f5bf8afa367a96d",
+    "probe_scope": "Eight fixed rows only; these are reference diagnostics, not whole-bank summary statistics.",
+    "probe_statistics": [
+      {
+        "maximum": 0.14394471049308777,
+        "mean": -0.00048502015939296445,
+        "minimum": -0.1577412486076355,
+        "rms": 0.01962652402395974,
+        "row": 0,
+        "sha256": "cfcbe0997fefff72058138fa32bc79950770253cefe84ebabcf8819f7b234933"
+      },
+      {
+        "maximum": 0.17524656653404236,
+        "mean": -0.0002993336549631446,
+        "minimum": -0.14444518089294434,
+        "rms": 0.020064078733135475,
+        "row": 1,
+        "sha256": "af7c225c10cbda1f45f7b77b0c22dd477d97960b2ef9738a27d08039ac0527df"
+      },
+      {
+        "maximum": 0.12115276604890823,
+        "mean": -0.0007101522714568395,
+        "minimum": -0.12892284989356995,
+        "rms": 0.027339739532450565,
+        "row": 57485,
+        "sha256": "0eab85d0434ca10622a7878b1e06047bf84cb102f042c1deda9db8c8f58e76fc"
+      },
+      {
+        "maximum": 0.22659412026405334,
+        "mean": -0.0005071498015619606,
+        "minimum": -0.16366618871688843,
+        "rms": 0.024068153246433324,
+        "row": 57486,
+        "sha256": "cf1f066fd5a2d2078480d5171a6ee7c7ba6952b42dfd4acd087106905d122c83"
+      },
+      {
+        "maximum": 0.14141273498535156,
+        "mean": -0.0005565699886195337,
+        "minimum": -0.1380646973848343,
+        "rms": 0.02521794631588081,
+        "row": 68883,
+        "sha256": "3b81c3d2cfc6a0290fdaaf8342d2ad881d3a7411164d135ef08a7422d5ce06f9"
+      },
+      {
+        "maximum": 0.15173807740211487,
+        "mean": -0.0005585477837864043,
+        "minimum": -0.17076197266578674,
+        "rms": 0.02086068733498425,
+        "row": 68884,
+        "sha256": "b5185f6568cfab64260bf8d80c7699c9a37c90c44e9ce23571640d989158fd9e"
+      },
+      {
+        "maximum": 0.1849650740623474,
+        "mean": -0.00015847729224181725,
+        "minimum": -0.18239963054656982,
+        "rms": 0.020564941391060486,
+        "row": 110228,
+        "sha256": "a2a414ef3a0d83c237586055481c4d6d248698e23ee0608d2e43bf30270e189d"
+      },
+      {
+        "maximum": 0.18807871639728546,
+        "mean": -0.0003053954191273078,
+        "minimum": -0.20364369451999664,
+        "rms": 0.018854746714322707,
+        "row": 110229,
+        "sha256": "de555332bbc63f2c75c5f13a3caa10df22e31dcd6bbac88cacbdf4f1d2ccde8e"
+      }
+    ],
+    "real_features_sha256": "be506462690ca38007afe60b7183b48c6800f8bd7b14da0f526b6486b48a584b",
+    "real_features_shape": [
+      110230,
+      5,
+      768
+    ],
+    "real_images_sha256": "df2651a21c47b5551b8456372c1bf2b506a23a9010c800a8586d096d6c6d56b2"
+  },
+  "index": {
+    "bytes": 7524681,
+    "cluster_ids_npy_sha256": "7c6a9040a0986448070450ea1a52001651fde21718e7c7b2d616d836f60e4b3c",
+    "file": "rows_clusters.npz",
+    "sha256": "69419343eb19c46ca524cec94b2452200156abbf345c9ed2816726fd09c3ec3b",
+    "source_counts": {
+      "blip3o": 57486,
+      "dalle3": 11398,
+      "sharegpt4o": 41346
+    }
+  },
+  "kmeans": {
+    "dissolved_clusters": 68,
+    "final_k": 956,
+    "final_shift": 0.026507824659347534,
+    "iterations": 60,
+    "mean_cosine_to_centroid": 0.717671811580658,
+    "min_size": 32,
+    "requested_k": 1024,
+    "seed": 20260916,
+    "size_max": 701,
+    "size_median": 99.0,
+    "size_min": 32
+  },
+  "population_rows": 110230,
+  "preprocessing": {
+    "caption_policy": "Original text; one image per literal caption; published row identifiers define the exact retained rows and order.",
+    "image_library": {
+      "jpeg_codec": "6.2",
+      "libjpeg_turbo": "3.1.4.1",
+      "pillow": "12.3.0"
+    },
+    "jpeg_quality": 95,
+    "resolution": 512,
+    "sharegpt_max_t5_tokens": 256
+  },
+  "provenance": {
+    "partition_reproducibility": "Published assignment is the measured instance. Rebuilding CUDA k-means changes the experiment.",
+    "stage2_conversion_revision": "d92730b2a01667a07023ff9104b9baab29b4030f"
+  },
+  "raw_datasets": {
+    "blip3o": {
+      "card_url": "https://huggingface.co/datasets/BLIP3o/BLIP3o-60k",
+      "files": [
+        {
+          "name": "dalle3.tar",
+          "sha256": "cf05ef7eb54fccb2da0042f80d0c93d31a3aaff82d034b6ff063ea3dc6f76afa",
+          "size": 10566379520
+        },
+        {
+          "name": "geneval_train.tar",
+          "sha256": "2ac91805708111132c7bfa06ca51eef1ba9a4704b364e8996ae10fde13898a54",
+          "size": 12248104960
+        },
+        {
+          "name": "human_gestures.tar",
+          "sha256": "f951b8d759396ba6a3ba27e90aa3c4fee0a260da2e670e559d8cb3ac064fa1f3",
+          "size": 17537228800
+        },
+        {
+          "name": "journeyDB.tar",
+          "sha256": "6c8f2019796b33b0c6944831fb470398104188444cccf201cf5684d39c253358",
+          "size": 18301818880
+        },
+        {
+          "name": "mscoco_human.tar",
+          "sha256": "69b942314ca631b702872bd8e942a86667e006519d310f39c442f0da2b5430ee",
+          "size": 15540961280
+        },
+        {
+          "name": "object_1.tar",
+          "sha256": "2a61ccc55af55f5c2ad4afb5d5f8e52430900b50607c52a5b7672bac305cf1ab",
+          "size": 4509962240
+        },
+        {
+          "name": "object_2.tar",
+          "sha256": "d32f59d17e282dfebaef464844d39df8d5c31bf9ee73e51809fe25594f7913ba",
+          "size": 1347297280
+        },
+        {
+          "name": "occupation_1.tar",
+          "sha256": "29ad915f8a965966471214a9a91ca72ba987f55c55d445b57dbaeaf2cdbe45c6",
+          "size": 4462090240
+        },
+        {
+          "name": "occupation_2.tar",
+          "sha256": "aa3cb471a653ababdd897a291f0fdae9a5a6eec46b546a60f3de70fbfc10c8de",
+          "size": 4457164800
+        },
+        {
+          "name": "text_1.tar",
+          "sha256": "9c655accc7cad2a6af41ff56e7d0668560e3965766eb743e07c5973bf9a84fc0",
+          "size": 9582243840
+        },
+        {
+          "name": "text_2.tar",
+          "sha256": "122ab505623f912bf642ddc5dad989e5cbee969d7de5312ef00ae5685b4cb430",
+          "size": 9607751680
+        }
+      ],
+      "license": "apache-2.0",
+      "repo_id": "BLIP3o/BLIP3o-60k",
+      "repo_type": "dataset",
+      "revision": "f7316b0aa446338ee1707484924aa59457b4bbf3"
+    },
+    "dalle3": {
+      "card_url": "https://huggingface.co/datasets/OpenDatasets/dalle-3-dataset",
+      "files": [
+        {
+          "name": "data/train-00000-of-00067.parquet",
+          "sha256": "42f814346a3576292ca388e127202975ef85dc6e8dec47bed612cbe7287d93a0",
+          "size": 513914389
+        },
+        {
+          "name": "data/train-00001-of-00067.parquet",
+          "sha256": "a3d5116b15af94b0b57726f47b4d05204be138fb4ba926f50d9f2263f3a9d77d",
+          "size": 445430025
+        },
+        {
+          "name": "data/train-00002-of-00067.parquet",
+          "sha256": "8926a5a0cdb097401b1e19d89839b42f50bb250196ebe2e485dfa3955dd7d87b",
+          "size": 447936336
+        },
+        {
+          "name": "data/train-00003-of-00067.parquet",
+          "sha256": "3e6e9991b30f094575a7000fffda67c40a2fcd451cc88c7128201d6ff65dd8b2",
+          "size": 406427498
+        },
+        {
+          "name": "data/train-00004-of-00067.parquet",
+          "sha256": "b49fb524d52bf9857d15fb88b93e2c41795655ae0c55d222854d6989b3bbbb3d",
+          "size": 473643230
+        },
+        {
+          "name": "data/train-00005-of-00067.parquet",
+          "sha256": "b9f093d4a33df91f993cf8a14e7ced8ac700d5ab91272acbcc3642b5d36394a2",
+          "size": 658988916
+        },
+        {
+          "name": "data/train-00006-of-00067.parquet",
+          "sha256": "f7e35d6442c0eb932ce9b4ef257d8af7f9cf5763b710ea5f99f3db1c67651b86",
+          "size": 401865272
+        },
+        {
+          "name": "data/train-00007-of-00067.parquet",
+          "sha256": "f893da83fa840471a4bc442ed0dc6e98c541ddb4d5eeaafa27d955c1af2924a7",
+          "size": 508439321
+        },
+        {
+          "name": "data/train-00008-of-00067.parquet",
+          "sha256": "1cde91b8cc82aed5f6f461aa6d740dfbd8276160d923383e48d9312e271f9eae",
+          "size": 470608634
+        },
+        {
+          "name": "data/train-00009-of-00067.parquet",
+          "sha256": "cdd4fe06576090542ce0219ec7139d57dff7882a0ae005451b35e52f68a02b17",
+          "size": 416996902
+        },
+        {
+          "name": "data/train-00010-of-00067.parquet",
+          "sha256": "a3c4d4befd6e2f1a4ae24db714f826de9d7769b41369308f96d905601e81b5a0",
+          "size": 398940343
+        },
+        {
+          "name": "data/train-00011-of-00067.parquet",
+          "sha256": "bee0e35b26e8b443ee3cb577664ba3982e4e39e78e9928dfbeadac388d4d90df",
+          "size": 466673434
+        },
+        {
+          "name": "data/train-00012-of-00067.parquet",
+          "sha256": "473c7c140eeff5739928fb7807c1ea90e63ac846e276c9bb387418177b639c8b",
+          "size": 383881618
+        },
+        {
+          "name": "data/train-00013-of-00067.parquet",
+          "sha256": "a884634e3c5e0ee6e6da9e808cff2a97787bb1183c6f75139e6c40b7ff3a7314",
+          "size": 461414060
+        },
+        {
+          "name": "data/train-00014-of-00067.parquet",
+          "sha256": "7520fa5d9e0482c6c462bdacadf1bbf9c7372fa7f6110692a07f7092cd12c9ac",
+          "size": 557451878
+        },
+        {
+          "name": "data/train-00015-of-00067.parquet",
+          "sha256": "1498e8c51a2158c826f339e18b58b154173aeb77d7de59c9a8687b78f73e4baf",
+          "size": 446241182
+        },
+        {
+          "name": "data/train-00016-of-00067.parquet",
+          "sha256": "c745c0f11d1f1e236c284e3dfaff105121cf2fd97b65ca2b7daf7d21be3d3089",
+          "size": 563065114
+        },
+        {
+          "name": "data/train-00017-of-00067.parquet",
+          "sha256": "38bba172ef4357f375b297861cb8ab8135fd0893d9a899897dac9717280ada90",
+          "size": 542866314
+        },
+        {
+          "name": "data/train-00018-of-00067.parquet",
+          "sha256": "99518f4416a56fb63d123516f4ebd72cb2d8b7414ad0419caf253ec1f4cda11a",
+          "size": 490748672
+        },
+        {
+          "name": "data/train-00019-of-00067.parquet",
+          "sha256": "3b815101afad9124a719c822f23f547b5f9c2de35460ec9c11e2a5b7eede1437",
+          "size": 539392411
+        },
+        {
+          "name": "data/train-00020-of-00067.parquet",
+          "sha256": "a131d1e1d77da47904c355356b4aa574ac4e88d8965864064bd45194ec6a4792",
+          "size": 454923221
+        },
+        {
+          "name": "data/train-00021-of-00067.parquet",
+          "sha256": "ff47d4b75e8f9f550d07a16a413f255cbc2da5188da77482c55f6a3246deb485",
+          "size": 534068297
+        },
+        {
+          "name": "data/train-00022-of-00067.parquet",
+          "sha256": "923c43b0e3c036c4b90e50606cb911fd073c8e0dee50fdd38707047e13b8e94e",
+          "size": 486880449
+        },
+        {
+          "name": "data/train-00023-of-00067.parquet",
+          "sha256": "6de34de2161730eaf6bf1fe6c5a3c499b804d747bacfbdff4972fd88bba4d115",
+          "size": 526548269
+        },
+        {
+          "name": "data/train-00024-of-00067.parquet",
+          "sha256": "f83c26329603171a423357d1320265c521bce7f7edbfffaf2f41fee2cdbb470f",
+          "size": 444935347
+        },
+        {
+          "name": "data/train-00025-of-00067.parquet",
+          "sha256": "7ff141ae034e8b28e567511ad146cf8b37d13eba210698d5c76c0068b137d711",
+          "size": 449943178
+        },
+        {
+          "name": "data/train-00026-of-00067.parquet",
+          "sha256": "397b4f4e33cec5b835d83023b054956ca90dabde99c3513419499bc28e9b9f58",
+          "size": 480889212
+        },
+        {
+          "name": "data/train-00027-of-00067.parquet",
+          "sha256": "539a7e438d91051ecb0246c607b355692f9fef7b05f68b20ff0b3a504bbf4947",
+          "size": 518480577
+        },
+        {
+          "name": "data/train-00028-of-00067.parquet",
+          "sha256": "9027ee17a56f492449792b1a64f728902b9665de0a270a1efb2727cad245bd8b",
+          "size": 560188844
+        },
+        {
+          "name": "data/train-00029-of-00067.parquet",
+          "sha256": "e012535b1245063c541998916a799eac13c1cdc5aaceb7f2c1a02ad1d7a5b6b6",
+          "size": 488351530
+        },
+        {
+          "name": "data/train-00030-of-00067.parquet",
+          "sha256": "762aab3fb255aacb825a43c7cb2992994fbf8b1c7b9ce49db8621c2460d1f9d9",
+          "size": 470684944
+        },
+        {
+          "name": "data/train-00031-of-00067.parquet",
+          "sha256": "faca4cd698d90157ce88f7732415299a5058829858abf22c61d14b1a6307dc9b",
+          "size": 539744503
+        },
+        {
+          "name": "data/train-00032-of-00067.parquet",
+          "sha256": "21670dc3c86efc050b9c2a19b1e60791a73bd962987e7b28f0f5e0d186fe8b9a",
+          "size": 472069971
+        },
+        {
+          "name": "data/train-00033-of-00067.parquet",
+          "sha256": "62075a7908332724481a399e84ec91a4fe6585c1d4724ccef4d66149b9584fb5",
+          "size": 645404086
+        },
+        {
+          "name": "data/train-00034-of-00067.parquet",
+          "sha256": "8f27be18e864c6e65b1359e474a74189e64e44d6ca61a1dc68e11f45cd6f8ee9",
+          "size": 587433061
+        },
+        {
+          "name": "data/train-00035-of-00067.parquet",
+          "sha256": "57086fbc4e51013b25aba09f046bdee682621a094d16eccf83fee7ae39e4033e",
+          "size": 564783659
+        },
+        {
+          "name": "data/train-00036-of-00067.parquet",
+          "sha256": "210590c31a2dde0e460c9479e33c31b9fa914b645cb8939daae7d4422e6bab90",
+          "size": 623343516
+        },
+        {
+          "name": "data/train-00037-of-00067.parquet",
+          "sha256": "2f8b51a18ee591b5101961dbfea3eee4a5c2369d985050a5a819913001932971",
+          "size": 564972720
+        },
+        {
+          "name": "data/train-00038-of-00067.parquet",
+          "sha256": "f6340cdecb87b4f272962afc7b6bcaac23014785ed2120b324787a9b48e9df84",
+          "size": 450807193
+        },
+        {
+          "name": "data/train-00039-of-00067.parquet",
+          "sha256": "6dde2482c07db1295348000cf02acde8d4be503534440db8e1ab10ec543eeebc",
+          "size": 423138479
+        },
+        {
+          "name": "data/train-00040-of-00067.parquet",
+          "sha256": "d4d48a90b749a4cd606dcf9f5fc08f66c45b2f43b42feeb100ceb391a4104062",
+          "size": 465841798
+        },
+        {
+          "name": "data/train-00041-of-00067.parquet",
+          "sha256": "95d803ecec063d375de385349c6c6408904c19904c77209fcbc606598b8787b0",
+          "size": 423055488
+        },
+        {
+          "name": "data/train-00042-of-00067.parquet",
+          "sha256": "2606908058773a883ee7ee0f9844a05813959b7c4d005fb5c1cc96997966b29a",
+          "size": 410571171
+        },
+        {
+          "name": "data/train-00043-of-00067.parquet",
+          "sha256": "9162a08b8d51aae84fd53eba4ed6e2732a435c19358a8999ff9663199278fa0a",
+          "size": 380338564
+        },
+        {
+          "name": "data/train-00044-of-00067.parquet",
+          "sha256": "55c2a47d79cd39acb2c836ab61f66b5ae77725b6e177f009ad1fa51e9b4eba94",
+          "size": 496308683
+        },
+        {
+          "name": "data/train-00045-of-00067.parquet",
+          "sha256": "a3e8f042d8951df4d9ce528c95aa76b3fb935d8b51f5f64cc885b82bbfb17fdd",
+          "size": 482136753
+        },
+        {
+          "name": "data/train-00046-of-00067.parquet",
+          "sha256": "9acccacca842f1a460415aa9c359188c23c007e485f4d6a3c44827df0181b0ee",
+          "size": 539717539
+        },
+        {
+          "name": "data/train-00047-of-00067.parquet",
+          "sha256": "260f52700be31923935d3bf98b2a07d1e87db168947c4fc9a733c12c64598ce1",
+          "size": 529928518
+        },
+        {
+          "name": "data/train-00048-of-00067.parquet",
+          "sha256": "206c34c280e4ceb5765d08cd51f88ec7b3c010d3efb5ba7e7c966475b9d53b2f",
+          "size": 518359675
+        },
+        {
+          "name": "data/train-00049-of-00067.parquet",
+          "sha256": "fa9f96e0fe5006ac83b35441f4ae93527e66b766d084b0025f9aa5949bc692a7",
+          "size": 478702434
+        },
+        {
+          "name": "data/train-00050-of-00067.parquet",
+          "sha256": "f7cdf5a5ff74a4c456a1c778c6ed5fb3e36769fde0fbd18351d9b1868fb66566",
+          "size": 471638975
+        },
+        {
+          "name": "data/train-00051-of-00067.parquet",
+          "sha256": "3d6f28637bed446d617aeca16ad9c2e8d9c84e5d5e9a385ac1857176746a0270",
+          "size": 447018831
+        },
+        {
+          "name": "data/train-00052-of-00067.parquet",
+          "sha256": "e4a63cdfb6c59f46f34ee66f5b3bdad018da5de42f5fbac99f8036122dda98ba",
+          "size": 575143957
+        },
+        {
+          "name": "data/train-00053-of-00067.parquet",
+          "sha256": "aeba3aec83a079e94293a06b8b831acf4cb494d30a43122ead978d73afdaaec7",
+          "size": 593602037
+        },
+        {
+          "name": "data/train-00054-of-00067.parquet",
+          "sha256": "0b411e149da5a89d1e9ddc84554c73e89be71986f28b7a24e6216790a48a31fc",
+          "size": 454347582
+        },
+        {
+          "name": "data/train-00055-of-00067.parquet",
+          "sha256": "8a5f6f3e060d297cf758b7e63eb457e5d87b59f7b0064ec588e6f6cc46cff4b4",
+          "size": 499648943
+        },
+        {
+          "name": "data/train-00056-of-00067.parquet",
+          "sha256": "0ea3c92b45011a93dfe5930ebf6b1195161a35ae93f2dcde24b9f1f24d82fcb1",
+          "size": 403124685
+        },
+        {
+          "name": "data/train-00057-of-00067.parquet",
+          "sha256": "c6687ac064f1c82933a88410c2dc4f089772e40a78f82bf3ec13623c2be0dca2",
+          "size": 475768061
+        },
+        {
+          "name": "data/train-00058-of-00067.parquet",
+          "sha256": "0017e8c0c0872dee55dc338578c8fcb0a2737d573fd97f139543282e5e86703e",
+          "size": 627163163
+        },
+        {
+          "name": "data/train-00059-of-00067.parquet",
+          "sha256": "50574a0fb413cbab029562822ca8612e00f5d8c6da6028fc54da8b6243095227",
+          "size": 519753892
+        },
+        {
+          "name": "data/train-00060-of-00067.parquet",
+          "sha256": "41d7d898f41ce578bb5c3b1abc0f0e7bbd0964dd2e64145ad5c9b05eb0c7186d",
+          "size": 439615370
+        },
+        {
+          "name": "data/train-00061-of-00067.parquet",
+          "sha256": "aad10af402b2101e1c9c5be3d3c704ceb3083e27e6fd8cf05be70310ca6e6796",
+          "size": 476701839
+        },
+        {
+          "name": "data/train-00062-of-00067-49cc56f79f975fae.parquet",
+          "sha256": "3435c52a882e2223591ab59ec2e167780b85e68eac9778f6cc0f39c27488b0f6",
+          "size": 444570886
+        },
+        {
+          "name": "data/train-00063-of-00067-c51100b2304548b8.parquet",
+          "sha256": "6b302e2a618ba532a469441efcaeb382bd7b26eefe454ba8956f6a294cd237e2",
+          "size": 453890844
+        },
+        {
+          "name": "data/train-00064-of-00067-31b9925885a214be.parquet",
+          "sha256": "9086c5844ada70a06fda2879334fe37ac60f23017f5de092de4d98d71f02ca9f",
+          "size": 498429665
+        },
+        {
+          "name": "data/train-00065-of-00067-0aab86a82bda475a.parquet",
+          "sha256": "4418bed0f3d7540ce11e5a1293f40861df7d444cdffe805f47448fefebe7c001",
+          "size": 606949829
+        },
+        {
+          "name": "data/train-00066-of-00067-31a40dd1119835ff.parquet",
+          "sha256": "704159f23372c11bee700864fb9b825319a35b954d189ea67f6601b324933112",
+          "size": 591065501
+        }
+      ],
+      "license": [
+        "cc0-1.0"
+      ],
+      "repo_id": "OpenDatasets/dalle-3-dataset",
+      "repo_type": "dataset",
+      "revision": "96822d5c0b1338ec4bfd04b0d5909fa070e301b6"
+    },
+    "sharegpt4o": {
+      "card_url": "https://huggingface.co/datasets/FreedomIntelligence/ShareGPT-4o-Image",
+      "files": [
+        {
+          "name": "text_to_image.json",
+          "sha256": "daeea6b4fb22eab3164b96687acb85ead590eafb3cbbee1b3163f393396910d2",
+          "size": 28083319
+        },
+        {
+          "name": "text_to_image_part_0.tar",
+          "sha256": "478bd64349c8ba353ef96542999363054e79599b17ec84df7c545eeb680011f8",
+          "size": 9271982080
+        },
+        {
+          "name": "text_to_image_part_1.tar",
+          "sha256": "7721137cbadabf497c6cc775665ed0c3b38592e8c0fd679b02d431a10a975c24",
+          "size": 9207316480
+        },
+        {
+          "name": "text_to_image_part_2.tar",
+          "sha256": "42e30858915b0f4370fbbd1e7fc481df41d5e9c9489d2d049e23cf75bc6e0955",
+          "size": 9289912320
+        },
+        {
+          "name": "text_to_image_part_3.tar",
+          "sha256": "cac143c0a2452e0bced59b5fa19e4fcbef8ef9426367c3114256b44a66a01f7c",
+          "size": 9295093760
+        },
+        {
+          "name": "text_to_image_part_4.tar",
+          "sha256": "0a9454162516d2dc1adcb54977818c14f6f87c68b7f33e30f6cc976f17867b42",
+          "size": 8873216000
+        },
+        {
+          "name": "text_to_image_part_5.tar",
+          "sha256": "2ab345ed3b7f0848debd29f60caf71e3973af2766e52119e6d83455b629f4772",
+          "size": 8237957120
+        },
+        {
+          "name": "text_to_image_part_6.tar",
+          "sha256": "b5ac290f4a59fc84ae1fbbe1452230909d4683cda62a293a9dff6f0af7cd86f3",
+          "size": 8428677120
+        },
+        {
+          "name": "text_to_image_part_7.tar",
+          "sha256": "7eef2cea109700c8bb1e5f12b5b769a4edc171c91686c479d992594ee7d98149",
+          "size": 8996177920
+        },
+        {
+          "name": "text_to_image_part_8.tar",
+          "sha256": "5bc22d550a6f5ead80edf4c336f1cf3e12ed73a3200acf6042ca19839265275f",
+          "size": 9190768640
+        },
+        {
+          "name": "text_to_image_part_9.tar",
+          "sha256": "e081a6aa8f0601c9ee149b9be6eaa324371077f9b298760ded712cca4197768c",
+          "size": 9283911680
+        }
+      ],
+      "license": "apache-2.0",
+      "repo_id": "FreedomIntelligence/ShareGPT-4o-Image",
+      "repo_type": "dataset",
+      "revision": "f9bcb9494e562f3b6d46585bda0e7f0f0d6ec43f"
+    }
+  },
+  "raw_filenames": [
+    "dalle3.tar",
+    "data/train-00000-of-00067.parquet",
+    "data/train-00001-of-00067.parquet",
+    "data/train-00002-of-00067.parquet",
+    "data/train-00003-of-00067.parquet",
+    "data/train-00004-of-00067.parquet",
+    "data/train-00005-of-00067.parquet",
+    "data/train-00006-of-00067.parquet",
+    "data/train-00007-of-00067.parquet",
+    "data/train-00008-of-00067.parquet",
+    "data/train-00009-of-00067.parquet",
+    "data/train-00010-of-00067.parquet",
+    "data/train-00011-of-00067.parquet",
+    "data/train-00012-of-00067.parquet",
+    "data/train-00013-of-00067.parquet",
+    "data/train-00014-of-00067.parquet",
+    "data/train-00015-of-00067.parquet",
+    "data/train-00016-of-00067.parquet",
+    "data/train-00017-of-00067.parquet",
+    "data/train-00018-of-00067.parquet",
+    "data/train-00019-of-00067.parquet",
+    "data/train-00020-of-00067.parquet",
+    "data/train-00021-of-00067.parquet",
+    "data/train-00022-of-00067.parquet",
+    "data/train-00023-of-00067.parquet",
+    "data/train-00024-of-00067.parquet",
+    "data/train-00025-of-00067.parquet",
+    "data/train-00026-of-00067.parquet",
+    "data/train-00027-of-00067.parquet",
+    "data/train-00028-of-00067.parquet",
+    "data/train-00029-of-00067.parquet",
+    "data/train-00030-of-00067.parquet",
+    "data/train-00031-of-00067.parquet",
+    "data/train-00032-of-00067.parquet",
+    "data/train-00033-of-00067.parquet",
+    "data/train-00034-of-00067.parquet",
+    "data/train-00035-of-00067.parquet",
+    "data/train-00036-of-00067.parquet",
+    "data/train-00037-of-00067.parquet",
+    "data/train-00038-of-00067.parquet",
+    "data/train-00039-of-00067.parquet",
+    "data/train-00040-of-00067.parquet",
+    "data/train-00041-of-00067.parquet",
+    "data/train-00042-of-00067.parquet",
+    "data/train-00043-of-00067.parquet",
+    "data/train-00044-of-00067.parquet",
+    "data/train-00045-of-00067.parquet",
+    "data/train-00046-of-00067.parquet",
+    "data/train-00047-of-00067.parquet",
+    "data/train-00048-of-00067.parquet",
+    "data/train-00049-of-00067.parquet",
+    "data/train-00050-of-00067.parquet",
+    "data/train-00051-of-00067.parquet",
+    "data/train-00052-of-00067.parquet",
+    "data/train-00053-of-00067.parquet",
+    "data/train-00054-of-00067.parquet",
+    "data/train-00055-of-00067.parquet",
+    "data/train-00056-of-00067.parquet",
+    "data/train-00057-of-00067.parquet",
+    "data/train-00058-of-00067.parquet",
+    "data/train-00059-of-00067.parquet",
+    "data/train-00060-of-00067.parquet",
+    "data/train-00061-of-00067.parquet",
+    "data/train-00062-of-00067-49cc56f79f975fae.parquet",
+    "data/train-00063-of-00067-c51100b2304548b8.parquet",
+    "data/train-00064-of-00067-31b9925885a214be.parquet",
+    "data/train-00065-of-00067-0aab86a82bda475a.parquet",
+    "data/train-00066-of-00067-31a40dd1119835ff.parquet",
+    "geneval_train.tar",
+    "human_gestures.tar",
+    "journeyDB.tar",
+    "mscoco_human.tar",
+    "object_1.tar",
+    "object_2.tar",
+    "occupation_1.tar",
+    "occupation_2.tar",
+    "text_1.tar",
+    "text_2.tar",
+    "text_to_image_part_0.tar",
+    "text_to_image_part_1.tar",
+    "text_to_image_part_2.tar",
+    "text_to_image_part_3.tar",
+    "text_to_image_part_4.tar",
+    "text_to_image_part_5.tar",
+    "text_to_image_part_6.tar",
+    "text_to_image_part_7.tar",
+    "text_to_image_part_8.tar",
+    "text_to_image_part_9.tar"
+  ],
+  "schema": "bigfield-public-assets-v1",
+  "source_weights": {
+    "blip3o": 0.06,
+    "dalle3": 0.016,
+    "sharegpt4o": 0.04
+  },
+  "sources": [
+    "blip3o",
+    "dalle3",
+    "sharegpt4o"
+  ],
+  "weights": {
+    "clip": {
+      "files": [
+        {
+          "name": "ViT-L-14.pt",
+          "sha256": "b8cca3fd41ae0c99ba7e8951adf17d267cdb84cd88be6f7c2e0eca1737a03836",
+          "size": 932768134,
+          "url": "https://openaipublic.azureedge.net/clip/models/b8cca3fd41ae0c99ba7e8951adf17d267cdb84cd88be6f7c2e0eca1737a03836/ViT-L-14.pt"
+        }
+      ]
+    },
+    "dino": {
+      "files": [
+        {
+          "name": "config.json",
+          "sha256": "f7ff4cfa73d2f70647dbf6950541ad25d73082d54c2e7e9bded160c7656b2a70",
+          "size": 548
+        },
+        {
+          "name": "model.safetensors",
+          "sha256": "d73036b56966966d07975d696bde331762f37297e2f095de8cea0040c3aa0841",
+          "size": 346345912
+        }
+      ],
+      "repo_id": "facebook/dinov2-base",
+      "repo_type": "model",
+      "revision": "f9e44c814b77203eaa57a6bdbbd535f21ede1415"
+    },
+    "inception": {
+      "files": [
+        {
+          "name": "weights.pickle",
+          "sha256": "4e030efa5bccac3222d975f658d1884f9e00fab24f2812082884539220b90d77",
+          "size": 95559804,
+          "url": "https://www.dropbox.com/s/xt6zvlvt22dcwck/inception_v3_weights_fid.pickle?dl=1"
+        }
+      ],
+      "note": "Legacy upstream URL is a candidate. It must produce the exact SHA; otherwise obtain the matching legacy file from the experiment owners. Never substitute the newer FID weights."
+    },
+    "initial": {
+      "files": [
+        {
+          "name": "checkpoint/_CHECKPOINT_METADATA",
+          "sha256": "20f55a8c10374c06a1cf77ba5e949aee252d9fd9ca3884ad82153ce780ce1780",
+          "size": 258
+        },
+        {
+          "name": "checkpoint/_METADATA",
+          "sha256": "653008787baf06dadd5875fd980a4329b5848d60878238822d6c050b599021a3",
+          "size": 344917
+        },
+        {
+          "name": "checkpoint/d/69d91af02e1c4e06de99c786c2fe3c4a",
+          "sha256": "f1edcf1bc8cb823db4366ab2de869a5de576ce47eb82c97e08ca8d5a8c6f8798",
+          "size": 24965
+        },
+        {
+          "name": "checkpoint/manifest.ocdbt",
+          "sha256": "6e2966004355c7df63e99649029f18513e29aa9889db5ad5a6735a7d0564b178",
+          "size": 120
+        },
+        {
+          "name": "checkpoint/ocdbt.process_0/d/1767dbf09acc1b24183cf10ff05413e7",
+          "sha256": "61276cccdc0fad3c99e9ac78c9d0bc594aae48cb5400cb507a17ee6781a6af0d",
+          "size": 955371520
+        },
+        {
+          "name": "checkpoint/ocdbt.process_0/d/3c718ec93ddf1f7589feea2a3184f433",
+          "sha256": "ccb1193665aa56e996f3d910d79c70cc036f41fcf2fd105f3840a98c50a37eb6",
+          "size": 1560
+        },
+        {
+          "name": "checkpoint/ocdbt.process_0/d/5be40d94bce1e3d9bede00a51e62c352",
+          "sha256": "46b72a01d5220cae3d499f99a0bfc7cae995c85fc54c6732fb48f05977f6cff6",
+          "size": 973508608
+        },
+        {
+          "name": "checkpoint/ocdbt.process_0/d/8c2ba6ee653c7f2e5eda1a2a30ae24c6",
+          "sha256": "5633eb07bbc0b95a14224d5b880667787690c6528701ed9d1a3b19e68d45cb80",
+          "size": 561
+        },
+        {
+          "name": "checkpoint/ocdbt.process_0/d/9a0b5784f48dcfa15235f9ba4796f84d",
+          "sha256": "c2c592d0e776ba75b366fd0c49eebc8f11a04d3e79a6ae7dd1f6e2307c25e569",
+          "size": 24362
+        },
+        {
+          "name": "checkpoint/ocdbt.process_0/d/f088b014ab226b0ba51df84004027874",
+          "sha256": "adf8e2b464e28b4475aac2c4f730918629f92d982dbce57fb57a8b6f1bd3fd86",
+          "size": 1199
+        },
+        {
+          "name": "checkpoint/ocdbt.process_0/manifest.ocdbt",
+          "sha256": "969a503cb1d44d31e6acec194d1e9e6e8ac042562b55080a9cd51b3bc01fb660",
+          "size": 358
+        }
+      ],
+      "license": "other; review upstream model card before use",
+      "repo_id": "MiniT2I/MiniT2I-B-16-MF-jax",
+      "repo_type": "model",
+      "revision": "922ce3b5d66c28e895add8e9d93f576eea88584e"
+    },
+    "mae": {
+      "files": [
+        {
+          "name": "config.json",
+          "sha256": "1f7a507e1f7f63a262c5500b86470c3b22ff1a9e42de81bbba27105396572dae",
+          "size": 676
+        },
+        {
+          "name": "model.safetensors",
+          "sha256": "479dcef4bd5df06259399027b789f21e9d9a1b79f37155a64176d55bc26fdae8",
+          "size": 447670680
+        }
+      ],
+      "repo_id": "facebook/vit-mae-base",
+      "repo_type": "model",
+      "revision": "25b184bea5538bf5c4c852c79d221195fdd2778d"
+    },
+    "siglip": {
+      "files": [
+        {
+          "name": "config.json",
+          "sha256": "be2c0f7fed74443b4913db03588b5dd6cfe05fc86f6774f7ad01a4103f1e2c17",
+          "size": 571
+        },
+        {
+          "name": "model.safetensors",
+          "sha256": "b07f8a4bad267232a87888b2527d054d130b1fba18f75e6e26c17766dc26bdc2",
+          "size": 371551936
+        }
+      ],
+      "repo_id": "timm/vit_base_patch16_siglip_224.webli",
+      "repo_type": "model",
+      "revision": "8db107e594ed7552e44e108f16650d81ac6de9a6"
+    },
+    "t5": {
+      "files": [
+        {
+          "name": "README.md",
+          "sha256": "a16c1cd524e581deea429ff4895d5822d4781df8e6f3c9ac1158d4103d4392d1",
+          "size": 10820
+        },
+        {
+          "name": "config.json",
+          "sha256": "bfa5beeb5a4630a97f043f071b9b5d858c842604cff5db874680f33b56090c8c",
+          "size": 662
+        },
+        {
+          "name": "generation_config.json",
+          "sha256": "f5a1c7e2be8092018d8835128987edf0111637dd98e90599cc80310fef75d95a",
+          "size": 147
+        },
+        {
+          "name": "model.safetensors",
+          "sha256": "a9dd06ce490f139af36e9eb77dd3758b4fd07a08a73d5a1abe5ff2591e2d388e",
+          "size": 3132668804
+        },
+        {
+          "name": "special_tokens_map.json",
+          "sha256": "5c87151ef0f72a99d1f766a4c418bd2a1f90aaa30a8e22fe5eca9641daebb64f",
+          "size": 2201
+        },
+        {
+          "name": "spiece.model",
+          "sha256": "d60acb128cf7b7f2536e8f38a5b18a05535c9e14c7a355904270e15b0945ea86",
+          "size": 791656
+        },
+        {
+          "name": "tokenizer.json",
+          "sha256": "fe2ebbbbde2985be723e0ce18217853e4020c5e9d35bd07be2c27ab9d3ead57a",
+          "size": 2424064
+        },
+        {
+          "name": "tokenizer_config.json",
+          "sha256": "5d19985330a9123285cc583fc60616d083aa9df7435812b5d8bb3e749f435d56",
+          "size": 2539
+        }
+      ],
+      "repo_id": "google/flan-t5-large",
+      "repo_type": "model",
+      "revision": "0613663d0d48ea86ba8cb3d7a44f0f65dc596a2a"
+    }
+  }
+}

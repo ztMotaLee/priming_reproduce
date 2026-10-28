@@ -1,0 +1,25 @@
+--extra-index-url https://download.pytorch.org/whl/cu118
+torch==2.0.0+cu118
+torchvision==0.15.1+cu118
+Pillow==9.4.0
+modelscope==1.15.0
+accelerate==0.28.0
+datasets==2.18.0
+pyarrow==15.0.2
+numpy==1.24.4
+pandas==1.5.3
+transformers==4.38.2
+tokenizers==0.15.2
+huggingface-hub==0.25.2
+diffusers==0.27.2
+timm==0.9.16
+decord==0.6.0
+einops==0.7.0
+simplejson==3.19.2
+sortedcontainers==2.4.0
+easydict==1.13
+addict==2.4.0
+sentencepiece==0.2.0
+librosa==0.10.1
+soundfile==0.12.1
+oss2==2.18.5

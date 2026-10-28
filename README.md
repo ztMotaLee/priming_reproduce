@@ -1,3 +1,9 @@
+## Long-horizon T2I big-field post-training
+
+See [t2i_bigfield](t2i_bigfield/README.md) for the fixed single-stream 0–30,000
+update experiment, portable multi-node H100 launch, paired evaluation, and a
+[mentor agent prompt](t2i_bigfield/MENTOR_PROMPT.md).
+
 ## Quick start: Stage-1 pure-noise pretraining
 
 ```bash

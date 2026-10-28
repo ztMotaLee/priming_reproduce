@@ -1,0 +1,19 @@
+# JAX is selected by setup.sh: CPU or CUDA 12, version 0.4.37.
+flax==0.10.4
+optax==0.2.5
+chex==0.1.89
+orbax-checkpoint==0.6.4
+numpy==1.26.4
+scipy==1.13.1
+transformers==4.46.1
+tokenizers==0.20.3
+safetensors==0.5.3
+huggingface-hub==0.24.7
+Pillow==12.3.0
+pyarrow==19.0.1
+PyYAML==6.0.2
+ml-collections==0.1.1
+einops==0.8.1
+sentencepiece==0.2.0
+protobuf==4.25.6
+pytest==8.3.5

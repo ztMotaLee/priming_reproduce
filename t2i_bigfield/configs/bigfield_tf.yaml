@@ -1,0 +1,73 @@
+# Fixed experiment; source references are descriptive names, with exact provenance in the release report.
+experiment: bigfield_tf
+training_seed: 20260906 # Stage-2 config: training_seed; field seed is identical.
+updates: 30000 # Authorized long-horizon extension, starting at official step 0.
+resolution: 512 # Stage-2 train.resolution.
+caption_groups: 64 # Stage-2 train.Q; global, independent of topology.
+active_per_caption: 16 # Stage-2 train.N.
+reference_per_caption: 16 # Stage-2 train.reference_per_caption; detached.
+paired_real_per_caption: 1 # Stage-2 paired target.
+replay_chunk: 4 # Calibrated production images_per_device_chunk.
+precision: default # Stage-2 production features; DINO retains its own float32 policy.
+initial_parameter_sha256: 4eaedd1f50931b97b2a77eff8def107d2a186f8d00a7f4d579d2020944d0530a
+sampler:
+  branch: pt_net # Official MF checkpoint params/pt_net.
+  noise_scale: 2.0
+  tau: 0.0
+  cfg: null # One x0 forward, no guidance.
+optimizer: # Stage-2 optimizer(), a new optimizer at step zero.
+  learning_rate: 0.00001
+  b1: 0.9
+  b2: 0.95
+  eps: 0.00000001
+  weight_decay: 0.0
+  clip_global_norm: 1.0
+  ema: false
+  warmup_steps: 0
+objective: # Stage-2 grouped_stage2_loss and branch_scale.
+  branches: [siglip, mae, inception]
+  epsilon: 0.05
+  sinkhorn_iterations: 10
+  rms_floor: 0.00000001
+source_weights: {blip3o: 0.06, dalle3: 0.016, sharegpt4o: 0.04}
+field: # Caption pseudo-class field and fixed PASS calibration.
+  weight: 0.07498942093324559 # Measured once; recalibration changes the experiment.
+  initial_clusters: 1024
+  minimum_cluster_size: 32
+  groups: 64
+  rows_per_group: 16
+  bank_rows_per_group: 64
+  branches: [global, top_left, top_right, bottom_left, bottom_right]
+  channels: 768
+  radii: [0.02, 0.05, 0.2]
+  text_model: ViT-L-14
+  text_context_length: 77
+  encoder: dinov2-base
+  patch_token_l2_eps: 0.000001
+  stop_targets: true
+dose_diagnostics: # Registered D5; observations do not change training or fixed weight.
+  rho0: 0.23536276140843454 # PASS calibration receipt: TF.rho0.
+  calibration_receipt_sha256: bf7f8dd156ed708e23df3ef30751ba95961c239435c5e8e11422954e4c42f3fa
+  calibration_source: PASS calibration receipt, selectors TF.rho0 and TF.weight
+  counterfactual_interval: 50 # Same current parameters and AdamW state; no apply.
+  windows: [[901, 1000], [1901, 2000]] # Inclusive; registered original windows.
+  collapse_ratio: 0.1 # Strict median_rho < rho0/10.
+  dominance_ratio: 10.0 # Strict median_rho > 10*rho0.
+streams: # Host SeedSequence and JAX fold_in definitions are preserved in source.
+  captions: 64512
+  active_offset: 0
+  reference_offset: 1024
+  field_noise_offset: 17000
+  field_groups: 21000
+  field_bank: 22000
+checkpoint_interval: 1000
+permanent_checkpoint_steps: [1000, 2000, 4000, 8000, 12000, 16000, 24000, 30000]
+evaluation:
+  batch_size: 4
+  text_max_length: 256
+  quantization: clip(127.5*x+128,0,255).astype(uint8)
+  seeds: [0, 1, 2, 3]
+  geneval_prompts: 553
+  geneval_metric: overall_category_balanced
+  dpg_prompts: 1065
+  dpg_metric: fullrow_corrected_overall

@@ -1,0 +1,2 @@
+# Optional partition reconstruction only. The resulting assignment differs.
+open_clip_torch==2.20.0
