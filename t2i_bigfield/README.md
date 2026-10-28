@@ -1,182 +1,36 @@
-# Long-horizon big-field T2I post-training
+# Big-field one-step T2I post-training
 
-Add a caption pseudo-class real-image **big field** to Priming T2I Stage-2 and test whether its advantage over the small-field baseline persists through a continuous 0–30,000 update run.
+Run the fixed caption pseudo-class big-field experiment for 30,000 continuous updates from the official MiniT2I MF initialization, with every prescribed paired readout.
 
-Start from the official MiniT2I MF checkpoint's `params/pt_net`, create a new AdamW optimizer, and predict pixels in one forward pass from `2 * normal` at `tau=0`, without classifier-free guidance. This experiment uses one fixed training stream, no FD loss, and no checkpoint selection by evaluation score.
-
-The field weight is **0.07498942093324559**, fixed throughout training. It comes from the original PASS calibration receipt, whose measured median was 42.886 seconds/update on four H100s. **Recalibrating the weight changes the experiment.**
-
-## Contents and fixed recipe
-
-| File | Purpose |
-|---|---|
-| `MENTOR_PROMPT.md` | Complete prompt for an agent on the receiving cluster |
-| `configs/bigfield_tf.yaml` | Fixed scientific recipe and descriptive source mapping |
-| `assets/` | Download pins and the actual curated-row/pseudo-class assignment |
-| `setup.sh`, `prepare_data.py`, `data.py` | Environment, verified downloads, exact-row reconstruction, feature bank |
-| `train.py`, `training.py`, `field.py`, `objective.py`, `encoders.py` | Generator training and frozen feature objectives |
-| `bigfield_native/` | Namespaced model implementation, avoiding repository-root package collisions |
-| `checkpoint.py`, `distributed.py` | Full-state continuation and fixed-global-batch process geometry |
-| `train.slurm`, `submit_chain.sh`, `launcher.py` | Site-configured segmented multi-node launch |
-| `eval_sample.py`, `score.py`, `evaluation/` | Paired sampling and pinned scorers |
-| `tests/` | Lightweight CPU tests; run from this directory |
-
-Every update uses **64 global caption groups**, each with **16 active generated images, 16 independent detached generated references, and one paired real image** at 512 pixels. The original SigLIP, ViT-MAE and Inception features, ten Sinkhorn iterations, detached full-batch normalization and AdamW settings are preserved.
-
-The additional field uses the actual partition of 110,230 curated rows: CLIP ViT-L/14 text prefixes of 77 tokens, spherical k-means++ initialized with 1,024 clusters, dissolution of clusters smaller than 32, source-weighted grouped sampling, and 1,024 generated field rows/update. DINOv2-B features cover the whole image and four quadrants. Soft25 targets are stopped; field-noise stream offsets start at 17,000. The native and field gradients are added **before one common optimizer update**. The configuration and implementation retain the complete stream definitions.
-
-Global batch, learning rate and random streams stay fixed as hardware changes. Each GPU owns complete caption groups; total GPUs must divide 64. With four GPUs/node, supported node counts are **1, 2, 4, 8 or 16**; with eight GPUs/node they are **1, 2, 4 or 8**. Three nodes are unsupported for either layout. These are valid batch geometries, not claims of tested hardware layouts. All ranks gather features in the original group order before evaluating the full objective. Replay gradients are summed globally; they already include the global objective's normalization.
-
-The preregistered D5 dose diagnostic is preserved. Every update records global and parameter-group native/field/combined gradient norms, relative dose `rho_t`, gradient cosine and clipping. Every 50 updates, it compares native-only and combined AdamW updates from the same current optimizer state without changing the actual state. The fixed calibration reference is **rho0 = 0.23536276140843454**, bound to receipt SHA-256 `bf7f8dd156ed708e23df3ef30751ba95961c239435c5e8e11422954e4c42f3fa`. The original windows **901–1000** and **1901–2000** flag an unmaintained dose when their median is below `rho0 / 10` or above `10 * rho0`. This is a reported diagnostic; it does not stop training or change the fixed field weight.
-
-## One-time setup and data
-
-Clone branch `bigfield-posttrain` of [ztMotaLee/priming_reproduce](https://github.com/ztMotaLee/priming_reproduce), then work in `t2i_bigfield/`. Use shared storage visible at the same path on every node. Set `DATA_ROOT` to your own storage location. The generator and feature-bank preparation require an allocated GPU node; full data reconstruction and large downloads also belong on a suitable compute/data-transfer node.
+Requirements: Linux x86-64, Python 3.10 or Conda, Slurm, and H100 GPUs. Total GPUs must divide 64; the automatic default is the largest legal layout using at most 16 GPUs. Use shared storage visible on all nodes and network access to the pinned public model/data endpoints. Budget about 242 GB for downloads, about 124 GB for 30 retained checkpoints, plus environments, prepared images and evaluation workspace; their extra footprint and your quota must be checked locally.
 
 ```bash
 git clone --branch bigfield-posttrain https://github.com/ztMotaLee/priming_reproduce.git
 cd priming_reproduce/t2i_bigfield
-export DATA_ROOT=/YOUR/SHARED/DATA
+bash setup.sh
+bash run.sh
+bash status.sh
 ```
 
-Read `assets/public_pins.json` before downloading: it records source repositories, exact revisions, expected bytes/SHA values and licensing notes. The three public sources are [BLIP3o-60k](https://huggingface.co/datasets/BLIP3o/BLIP3o-60k) (Apache-2.0), [DALL-E 3 dataset](https://huggingface.co/datasets/OpenDatasets/dalle-3-dataset) (CC0-1.0), and [ShareGPT-4o-Image](https://huggingface.co/datasets/FreedomIntelligence/ShareGPT-4o-Image) (Apache-2.0). At the pinned revisions all three were public and ungated. Review their terms. The pinned `huggingface-hub==0.24.7` provides `huggingface-cli login` for tools using Hub authentication. This package's HTTP downloader uses public URLs and does not read saved Hub login tokens. If an endpoint starts requiring authentication, stop and ask for a supported download procedure; logging in alone does not authenticate this downloader. Do not place access credentials in scripts or this repository.
+`setup.sh` creates environments and resumes SHA-verified downloads on the login node. It attempts GenEval and DPG setup separately; scorer failures leave training available and scoring pending. Image reconstruction and DINO extraction run as scheduled jobs.
 
-The official initialization is [MiniT2I-B-16-MF-jax](https://huggingface.co/MiniT2I/MiniT2I-B-16-MF-jax) at revision `922ce3b5d66c28e895add8e9d93f576eea88584e`. T5, SigLIP, ViT-MAE, Inception, DINOv2 and CLIP weights have separate pins and terms. Checkpoints and encoders are downloaded as data, never committed to this repository.
+`run.sh` detects site settings and asks you to confirm them. Its default is **PLAN_ONLY**: review the account, partition, nodes, resources and plan, then run **`bash run.sh --submit`**. Agent mode accepts `--yes` with confirmed environment overrides; `--yes` alone still creates no jobs. Repeated runs advance existing state without duplicating submissions.
 
-The released `rows_clusters.npz` contains identifiers and hashes with the **actual cluster assignments**, without captions or images. Reconstruction must reproduce the published row order, image bytes, caption hashes, token lengths and cluster IDs. A missing source row or hash mismatch is a reason to stop; silently substituting a nearby sample changes the experiment.
+The pipeline prepares data/features, checks a production-topology 2-step smoke and full-state 2-to-3 restore, measures throughput, and sizes the production segments with 15% time margin. It schedules all eight fixed readouts and the final summary. If job-side submission is disallowed, rerun the printed `run.sh --submit` command after the smoke. Failed stages stop with their logs and recovery instruction.
 
-Create a Python 3.10 environment and install the pinned packages. `setup.sh` uses a local virtual environment by default; alternatively activate your own Python 3.10 Conda environment and add `--current-environment`. Download flags are explicit. Transfers resume and the final bytes must match the pinned SHA.
+Defaults are `bigfield_data/` and `bigfield_run/` beside the repository; set `DATA_ROOT` and `OUTPUT_ROOT` before setup/run to choose other shared paths. Keep these settings for status and future continuation. No training or sampling runs on the login node.
 
-```bash
-PYTHON=python3.10 bash setup.sh --download-weights --download-data
-source .venv/bin/activate
-python prepare_data.py --root "$DATA_ROOT" check --kind weights
-python prepare_data.py --root "$DATA_ROOT" check --kind data
-python prepare_data.py --root "$DATA_ROOT" rebuild
-python prepare_data.py --root "$DATA_ROOT" dino --batch 32
-python prepare_data.py --root "$DATA_ROOT" check --kind prepared
-python prepare_data.py --root "$DATA_ROOT" check --kind bank
-```
+Return **`OUTPUT_ROOT/results/results.md`** and **`OUTPUT_ROOT/results/return_bundle.tar`**. The final allocated summary builds the archive; `bash status.sh --bundle` reuses it without reading large payloads on the login node. It contains the readout table, logs, dose summaries, configuration and hashes, with params for pending scoring (optional otherwise). Keep full optimizer checkpoints locally for continuation.
 
-Run reconstruction in a suitable CPU compute task and bank extraction in an allocated GPU task. Use the prepared/bank checks after building those outputs; `check --kind all` includes those outputs and is appropriate only after preparation. Inspect `--help` for individual commands. Build the real DINO feature bank on the receiving cluster. Its receipt binds the bank to the released population, model weights and feature preprocessing. The receipt's `statistics` summarize the whole bank; `probe_statistics` report the same eight fixed rows as the pins, including row-byte SHA, mean, RMS, minimum and maximum. Compare these probes with the corresponding reference rows, rather than comparing whole-bank statistics with eight-row diagnostics. A different numerical platform may require investigation before accepting a byte-SHA difference. Do not recompute the caption clusters for the paired experiment.
+For an interim bundle too large for the login node, preview `bash run.sh --yes --bundle` and add `--submit` after confirmation to schedule packaging only. Small bundles (at most 20 MB including archive overhead) can be created directly by status.
 
-The optional `recluster --output NEW_PATH` command is a separate reconstruction experiment and may produce a different field. Run it on allocated GPU compute resources in a **separate Python 3.10 environment** with CUDA-enabled `torch==2.5.1` and matching `torchvision==0.20.1`, using a CUDA wheel supported by your cluster's driver. Install the pinned base requirements and `requirements-recluster.txt`, then obtain the CLIP payload with `download --kind clip`. The optional requirements do not replace Torch. The main `setup.sh` deliberately installs CPU Torch; do not run it in the optional CUDA Torch environment. Confirm `torch.cuda.is_available()` inside the allocation before reclustering. No CUDA wheel version is prescribed for an unknown receiving cluster.
+Readouts: 1,000 / 2,000 / 4,000 / 8,000 / 12,000 / 16,000 / 24,000 / 30,000. GenEval uses 553 prompts × seeds 0–3 (`overall_category_balanced`); DPG uses 1,065 × seeds 0–3 (`fullrow_corrected_overall`). This is one training stream, without FD loss or score-based checkpoint selection.
 
-The initialization/encoder downloads total about 6.33 GB; the raw data downloads total about 231.45 GB. Downloads were checked against public repository metadata, without fetching the large payloads during release preparation. The legacy Inception weight URL is a candidate: the required SHA remains pinned, and a URL resolving successfully does not prove payload identity. If that file fails SHA verification, stop and request the exact original weight; do not substitute another Inception conversion. The initialization model is labeled with custom (`other`) terms; review its model card before use or redistribution.
+Common questions:
 
-## Smoke test before the long run
+- **Download/SHA failure?** Stop and report the exact file/log; rerun setup to resume an interrupted transfer. Never substitute a different asset or replace a corrupt final file automatically.
+- **Scoring pending?** Training can continue. Preserve every readout's params, checkpoint manifest and hashes for centralized scoring; do not change scorer versions or use training encoders as primary evaluators.
+- **No progress or a failed job?** Use `bash status.sh`, inspect the named logs, and follow its recovery command after resolving the cause. There is no automatic retry or recipe adjustment.
+- **Different GPU count or short walltime?** Confirm a layout dividing 64; the allocated smoke determines whether it fits and sizes segments. Estimates do not prove real-site performance.
 
-Run the CPU suite on the login node only if its local policy permits these short tests:
-
-```bash
-export JAX_PLATFORMS=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
-export NUMEXPR_NUM_THREADS=1 PYTHONDONTWRITEBYTECODE=1
-python -m unittest discover -s tests -v
-```
-
-Then clear `JAX_PLATFORMS` and run a **two-update smoke test on allocated H100 compute nodes**, using a new `OUTPUT_DIR`, with the topology intended for the main run. Fill the site variables in the next section first, then use:
-
-```bash
-unset JAX_PLATFORMS
-export OUTPUT_DIR=/YOUR/SHARED/RUNS/new_smoke
-mkdir -p "$(dirname "$OUTPUT_DIR")"
-START_STEP=0 END_STEP=2 bash submit_chain.sh
-START_STEP=0 END_STEP=2 bash submit_chain.sh --submit
-# After successful completion, verify and continue its full state:
-START_STEP=2 END_STEP=3 bash submit_chain.sh --submit
-```
-
-Inspect finite losses and gradient norms, verify all ranks completed, and inspect optimizer/RNG/cursor continuity. After the smoke continuation, save `python -m pip freeze --all`, `python -VV`, JAX/jaxlib versions, allocated device/driver information and the exact launch variables in new environment-record files under the smoke run directory. Direct dependencies are pinned, but transitive CUDA/environment resolution remains specific to the receiving cluster. Use a separate new directory for the scientific run, starting again from the official checkpoint at step zero. No numerical first-update reference is asserted for an untested GPU environment.
-
-## Multi-node 0–30,000 launch
-
-Fill every site-dependent value. `MEM_PER_NODE` is Slurm memory per node; `CPUS_PER_TASK` is per process, with one process per node. `GPU_TYPE` is optional: use the site's H100 resource spelling if required. The runtime verifies allocated H100 devices. Choose the coordinator port if the default 29500 is unsuitable for your network.
-
-```bash
-unset JAX_PLATFORMS
-export NODES=YOUR_NODE_COUNT GPUS_PER_NODE=YOUR_GPU_COUNT
-export PARTITION=YOUR_PARTITION ACCOUNT=YOUR_ACCOUNT
-export CPUS_PER_TASK=YOUR_CPU_COUNT MEM_PER_NODE=YOUR_MEMORY
-export TIME=YOUR_HH:MM:SS
-export PYTHON=python
-export OUTPUT_DIR=/YOUR/SHARED/RUNS/bigfield_0_to_30000
-export START_STEP=0 END_STEP=30000 STEPS_PER_SEGMENT=1000
-mkdir -p "$(dirname "$OUTPUT_DIR")"
-bash submit_chain.sh                 # print the full plan; creates no jobs or run directories
-bash submit_chain.sh --submit        # run only after smoke-test acceptance on your cluster
-```
-
-Create only the output parent before submission; the new `OUTPUT_DIR` itself must not already exist.
-
-The chain uses 30 segments by default. Segment boundaries also include every required readout. The first job has no dependency; subsequent jobs use `afterok` on newly submitted preceding jobs. Submission and runtime failures stop progress; there is no automatic retry or recipe adjustment. Keep the printed submission responses and logs. If submission stops partway through a chain, inspect those job IDs before deciding how to continue; do not blindly submit another full chain.
-
-Set segment length and walltime using your measured throughput with about 15% time margin plus initialization/checkpoint overhead. A segment exits successfully only after reaching its requested endpoint. A timeout can lose work after the latest completed checkpoint. Full-state checkpoints are written at least every 1,000 updates and at segment endpoints. Preserve checkpoints at **1,000, 2,000, 4,000, 8,000, 12,000, 16,000, 24,000 and 30,000** permanently. This implementation retains all completed checkpoints and performs no automatic cleanup.
-
-## Continuation and checkpoint transfer
-
-A resumable checkpoint contains parameters, AdamW moments/counters, step, RNG state, data cursor, scientific/data binding and payload SHA values. `latest.json` points to a completed checkpoint. Continuation rejects a changed recipe, data binding, missing optimizer state or inconsistent step/cursor. Do not initialize a new optimizer when resuming.
-
-After inspecting an interrupted run and its scheduler state, set `START_STEP` to its latest completed checkpoint step and keep the same `OUTPUT_DIR`; preview a new chain before submission. Every launch writes a new segment status report and preserves previous reports, including failures. No continuation is submitted automatically. A successful CPU round-trip only verifies toy-state behavior; the allocated-node smoke continuation is still required.
-
-Each checkpoint also has a standalone `params.msgpack`. If the scorer environments are difficult to reproduce, return the readout checkpoint's `params.msgpack` with `checkpoint.json`, its SHA-256 and the run configuration/data binding. AdamW is unnecessary for evaluation. Keep the full checkpoint on the training cluster for continuation.
-
-## Paired evaluation
-
-Primary metrics are **GenEval: 553 prompts × seeds 0–3, `overall_category_balanced`**, and **DPG: 1,065 prompts × seeds 0–3, `fullrow_corrected_overall`**. Prompt ordering, per-prompt seed reuse, internal key split, one-step sampler and pixel quantization are preserved for prompt-paired comparison to the original T arm. Do not replace these metrics with raw image averages or an uncorrected DPG aggregation.
-
-Prepare the exact prompt/scorer assets with `evaluation/prepare.py`, following `evaluation/README.md`. Use the separate pinned scorer environments; do not merge incompatible training and scorer dependencies. Sampling uses one visible GPU and must run inside an allocated compute-node task.
-
-```bash
-python eval_sample.py --benchmark geneval --checkpoint "$CHECKPOINT" \
-  --assets "$EVAL_ASSETS" --weights-root "$DATA_ROOT/weights" \
-  --native-root "$PWD/bigfield_native" --output "$NEW_GENEVAL_OUTPUT" --plan
-# Remove --plan inside a one-GPU allocation; repeat with --benchmark dpg and a new output path.
-python score.py --help
-```
-
-The training **image-feature** encoders (Inception, SigLIP, ViT-MAE, DINOv2) differ from the GenEval detector/CLIP image tower and DPG mPLUG. The partition was constructed beforehand with CLIP ViT-L/14's text tower; GenEval also uses CLIP, so this is a disclosed text-partition role and does not establish complete independence of all auxiliary pretrained weights. Inception-based FID, if computed elsewhere, is descriptive because Inception is used in training; it is not an independent primary result. Do not add an FD loss.
-
-| Arm / update | GenEval | DPG |
-|---|---:|---:|
-| T / 0 | 0.1345 | 26.90 |
-| T / 1,000 | 0.7937 | 81.54 |
-| T / 2,000 | 0.8012 | 82.06 |
-| T / 4,000 | 0.8186 | 82.06 |
-| Big field / 1,000 | 0.7951 | 81.80 |
-| Big field / 2,000 and 4,000 | Pending | Pending |
-| Priming paper / 4,000 | 0.818 | 82.16 |
-
-The first five rows are previously measured reference runs. The final row is a paper-reported comparison, not a measurement by this package. These values are sanity references, not acceptance thresholds or guarantees.
-
-## Compute, storage and known limits
-
-Four-H100 calibration measured 42.886 seconds/update median, 44.053 p95 and about 24.7 GB peak device memory. At that rate 30,000 updates require about **1,430 H100-hours**, before evaluation and setup. The following are **ideal strong-scaling estimates**, with a 15% time margin; multi-node performance has not been measured for this release.
-
-| Total H100s | Estimated training walltime with margin |
-|---:|---:|
-| 4 | 411 hours |
-| 8 | 205.5 hours |
-| 16 | 102.7 hours |
-| 32 | 51.4 hours |
-| 64 | 25.7 hours |
-
-Communication, feature gathering, initialization, checkpoints and evaluation can add substantial overhead. Use the smoke test to measure your cluster and size segments. Each completed checkpoint stores about **3.1 GB of full training state plus 1.03 GB of standalone parameters**. Thirty retained checkpoints therefore need roughly **124 GB**, plus temporary save space, prepared images/caches and evaluation panels. Raw downloads add about 231.45 GB, initialization/encoder weights about 6.33 GB, and the DINO bank about 1.6 GB; these are additional to checkpoint storage. Inspect pinned byte totals and available storage before preparation. Store checkpoints/features and the required evaluation panels, not a training image dump.
-
-Prepared images are packed into **111 tar shards** (1,000 images/shard for 110,230 rows), plus the index and manifest; their total byte size has not been measured for this release. One complete readout creates **2,212 GenEval sample PNGs** and **4,260 DPG sample PNGs plus 1,065 DPG grids**, before scorer outputs and metadata. Eight retained panels therefore contain **60,296 image files**. Panel bytes, scorer temporary space and scorer file counts are unknown until the receiving cluster's smoke/evaluation setup is measured; record free bytes and inodes before preparation and each evaluation.
-
-The CPU suite establishes toy-input agreement with the source functions. GPU execution, multi-node collectives, throughput and generated quality require verification on the receiving cluster. Model/data terms and third-party source redistribution terms remain applicable; inspect the source notices before publishing a derivative. Report mismatches and failures without changing constants or substituting assets.
-
-## Return at every readout
-
-Return one row per fixed readout, the complete training/evaluation logs, configuration and data/weight hashes, checkpoint manifest and SHA values. Include failures and pending scores. Optionally transfer parameter exports for centralized scoring. Include `dose_summary.json` and the `training.jsonl` diagnostics: the dose summary carries both original windows, their median values, thresholds, calibration binding and `PENDING`/`INCOMPLETE`/`MAINTAINED`/`UNMAINTAINED` status. A `MAINTAINED` result requires both complete windows; at 1,000 the second window is still pending. Readout snapshots are stored as `readouts/step_001000.dose.json`, `readouts/step_002000.dose.json` and the corresponding later steps; return these with their readouts.
-
-| Step | GenEval category-balanced | DPG corrected | Checkpoint SHA | Median s/update | Peak GB | D5 dose status / median rho | Status / notes |
-|---:|---:|---:|---|---:|---:|---|---|
-| 1000 | | | | | | | |
-| 2000 | | | | | | | |
-| 4000 | | | | | | | |
-| 8000 | | | | | | | |
-| 12000 | | | | | | | |
-| 16000 | | | | | | | |
-| 24000 | | | | | | | |
-| 30000 | | | | | | | |
+The complete original protocol, manual commands, licensing, reference scores, D5 definition, storage caveats and known limits are preserved in [docs/DETAILS.md](docs/DETAILS.md). Give your coding agent [MENTOR_PROMPT.md](MENTOR_PROMPT.md).
