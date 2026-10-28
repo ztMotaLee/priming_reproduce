@@ -1,6 +1,6 @@
 # Receiving agent instructions
 
-Goal: reproduce 30,000 continuous one-step pixel T2I updates with the released caption pseudo-class big field and report every fixed readout, including negative results.
+Goal: reproduce 30,000 continuous one-step pixel T2I updates with the released caption pseudo-class big field and report every fixed readout, including negative results. The initialization is the flow-matching teacher `params/pt_net` from the MiniT2I-B-16-MF-jax checkpoint, not the MeanFlow student `params/net`.
 
 Use branch `bigfield-posttrain` of `https://github.com/ztMotaLee/priming_reproduce`, directory `t2i_bigfield/`. Read README.md, docs/DETAILS.md, download pins and source/model license notices.
 

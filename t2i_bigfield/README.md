@@ -1,6 +1,6 @@
 # Big-field one-step T2I post-training
 
-Run the fixed caption pseudo-class big-field experiment for 30,000 continuous updates from the official MiniT2I MF initialization, with every prescribed paired readout.
+Run the fixed caption pseudo-class big-field experiment for 30,000 continuous updates from the official MiniT2I **flow-matching teacher** (`params/pt_net`, the frozen B/16 diffusion teacher stored inside the MiniT2I-B-16-MF-jax checkpoint; the MeanFlow student `params/net` is not used), with every prescribed paired readout.
 
 Requirements: Linux x86-64, Python 3.10 or Conda, Slurm, and H100 GPUs. Total GPUs must divide 64; the automatic default is the largest legal layout using at most 16 GPUs. Use shared storage visible on all nodes and network access to the pinned public model/data endpoints. Budget about 242 GB for downloads, about 124 GB for 30 retained checkpoints, plus environments, prepared images and evaluation workspace; their extra footprint and your quota must be checked locally.
 

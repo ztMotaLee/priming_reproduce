@@ -2,7 +2,7 @@
 
 Add a caption pseudo-class real-image **big field** to Priming T2I Stage-2 and test whether its advantage over the small-field baseline persists through a continuous 0–30,000 update run.
 
-Start from the official MiniT2I MF checkpoint's `params/pt_net`, create a new AdamW optimizer, and predict pixels in one forward pass from `2 * normal` at `tau=0`, without classifier-free guidance. This experiment uses one fixed training stream, no FD loss, and no checkpoint selection by evaluation score.
+Start from `params/pt_net` of the official MiniT2I MF checkpoint: this is the frozen MiniT2I-B/16 flow-matching (diffusion) teacher that the MeanFlow distillation stores as a subtree; the MeanFlow student `params/net` is discarded at load and never trained or evaluated here. Start from it, create a new AdamW optimizer, and predict pixels in one forward pass from `2 * normal` at `tau=0`, without classifier-free guidance. This experiment uses one fixed training stream, no FD loss, and no checkpoint selection by evaluation score.
 
 The field weight is **0.07498942093324559**, fixed throughout training. It comes from the original PASS calibration receipt, whose measured median was 42.886 seconds/update on four H100s. **Recalibrating the weight changes the experiment.**
 
@@ -41,7 +41,7 @@ export DATA_ROOT=/YOUR/SHARED/DATA
 
 Read `assets/public_pins.json` before downloading: it records source repositories, exact revisions, expected bytes/SHA values and licensing notes. The three public sources are [BLIP3o-60k](https://huggingface.co/datasets/BLIP3o/BLIP3o-60k) (Apache-2.0), [DALL-E 3 dataset](https://huggingface.co/datasets/OpenDatasets/dalle-3-dataset) (CC0-1.0), and [ShareGPT-4o-Image](https://huggingface.co/datasets/FreedomIntelligence/ShareGPT-4o-Image) (Apache-2.0). At the pinned revisions all three were public and ungated. Review their terms. The pinned `huggingface-hub==0.24.7` provides `huggingface-cli login` for tools using Hub authentication. This package's HTTP downloader uses public URLs and does not read saved Hub login tokens. If an endpoint starts requiring authentication, stop and ask for a supported download procedure; logging in alone does not authenticate this downloader. Do not place access credentials in scripts or this repository.
 
-The official initialization is [MiniT2I-B-16-MF-jax](https://huggingface.co/MiniT2I/MiniT2I-B-16-MF-jax) at revision `922ce3b5d66c28e895add8e9d93f576eea88584e`. T5, SigLIP, ViT-MAE, Inception, DINOv2 and CLIP weights have separate pins and terms. Checkpoints and encoders are downloaded as data, never committed to this repository.
+The official initialization (its `params/pt_net` teacher subtree only) is taken from [MiniT2I-B-16-MF-jax](https://huggingface.co/MiniT2I/MiniT2I-B-16-MF-jax) at revision `922ce3b5d66c28e895add8e9d93f576eea88584e`. T5, SigLIP, ViT-MAE, Inception, DINOv2 and CLIP weights have separate pins and terms. Checkpoints and encoders are downloaded as data, never committed to this repository.
 
 The released `rows_clusters.npz` contains identifiers and hashes with the **actual cluster assignments**, without captions or images. Reconstruction must reproduce the published row order, image bytes, caption hashes, token lengths and cluster IDs. A missing source row or hash mismatch is a reason to stop; silently substituting a nearby sample changes the experiment.
 
