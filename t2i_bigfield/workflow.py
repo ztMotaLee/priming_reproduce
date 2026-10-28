@@ -7,6 +7,7 @@ are never retried automatically. The scientific implementation is unchanged.
 from __future__ import annotations
 
 import argparse
+from contextvars import ContextVar
 import getpass
 import hashlib
 import json
@@ -23,6 +24,7 @@ import time
 import uuid
 
 HERE = Path(__file__).resolve().parent
+PLAN_ONLY_CONTEXT = ContextVar("plan_only", default=False)
 READOUTS = (1000, 2000, 4000, 8000, 12000, 16000, 24000, 30000)
 TRAIN_SIGNAL_SECONDS = 180
 SIGNAL_EARLY_SECONDS = 60
@@ -40,6 +42,7 @@ SITE_KEYS = ("ACCOUNT", "PARTITION", "NODES", "GPUS_PER_NODE", "CPUS_PER_TASK",
              "CPU_TIME", "GPU_TYPE", "GPU_QOS_SHORT", "GPU_QOS_LONG", "PYTHON",
              "CPU_CPUS_PER_TASK", "CPU_MEM_PER_NODE", "DATA_ROOT", "OUTPUT_ROOT",
              "SMOKE_TIME", "BANK_TIME", "EVAL_TIME", "MIN_FREE_BYTES", "MIN_FREE_INODES")
+QOS_KEYS = ("CPU_QOS", "GPU_QOS_SHORT", "GPU_QOS_LONG")
 
 
 class SubmissionRejected(RuntimeError):
@@ -199,11 +202,19 @@ def discover_site(env=None):
     """Read-only discovery; unknown values remain explicit questions."""
     env = dict(os.environ if env is None else env)
     found, notes = {}, []
+    associations = []
     try:
         account = command(["sacctmgr", "-n", "-P", "show", "assoc",
-                           "where", f"user={getpass.getuser()}", "format=Account"], check=False)
-        choices = sorted({line.split("|")[0].strip() for line in account.stdout.splitlines()
-                          if line.split("|")[0].strip()}) if account.returncode == 0 else []
+                           "where", f"user={getpass.getuser()}",
+                           "format=Account,Partition,QOS"], check=False)
+        if account.returncode == 0:
+            for line in account.stdout.splitlines():
+                fields = line.split("|")
+                if fields[0].strip():
+                    associations.append({"account": fields[0].strip(),
+                                         "partition": fields[1].strip() if len(fields) > 1 else "",
+                                         "qos": fields[2].strip() if len(fields) > 2 else ""})
+        choices = sorted({row["account"] for row in associations})
         if len(choices) == 1:
             found["ACCOUNT"] = choices[0]
         elif choices:
@@ -254,7 +265,233 @@ def discover_site(env=None):
         row = sorted(cpu, key=lambda row: row["name"])[0]
         found.update(CPU_PARTITION=row["name"], CPU_CPUS_PER_TASK=str(min(4, row["cpus"])),
                      CPU_MEM_PER_NODE=str(max(1, min(32768, int(row["memory"] * 0.8)))) + "M")
+    # Used only during first configuration, never stored in the run or plan.
+    found["_association_records"] = associations
     return found, notes
+
+
+def qos_disabled(value):
+    """Keep the legacy '-' spelling while accepting explicit empty/none values."""
+    return str(value).strip().lower() in ("", "none", "-")
+
+
+def qos_names(associations, account, partition):
+    names = set()
+    for row in associations:
+        if row["account"] != account or row["partition"] not in ("", partition):
+            continue
+        for value in row["qos"].split(","):
+            value = value.strip().lstrip("+")
+            if value and re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+                names.add(value)
+    return names
+
+
+def qos_limits(priorities=None):
+    """Read MaxWall and Priority; None means no published finite limit."""
+    result = command(["sacctmgr", "-n", "-P", "show", "qos", "format=Name,MaxWall,Priority"], check=False)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or "QOS MaxWall discovery unavailable")
+    limits = {}
+    for line in result.stdout.splitlines():
+        fields = line.split("|")
+        if len(fields) < 2 or not re.fullmatch(r"[A-Za-z0-9_.-]+", fields[0].strip()):
+            continue
+        value = fields[1].strip()
+        try:
+            seconds = None if value.lower() in ("", "infinite", "unlimited") else duration(value)
+        except ValueError:
+            continue
+        name = fields[0].strip()
+        limits[name] = seconds
+        if priorities is not None:
+            priority = fields[2].strip() if len(fields) > 2 else ""
+            priorities[name] = int(priority) if priority.isdecimal() else 0
+    return limits
+
+
+def qos_probe(site, key, qos, seconds, *, shape="primary"):
+    """Ask the controller to validate resources without creating a job or file."""
+    cpu = key == "CPU_QOS"
+    nodes = 1 if cpu else int(site["NODES"])
+    request = {"partition": site["CPU_PARTITION"] if cpu else site["PARTITION"],
+               "nodes": nodes, "gpus_per_node": 0 if cpu else int(site["GPUS_PER_NODE"]),
+               "cpus_per_task": int(site["CPU_CPUS_PER_TASK"] if cpu else site["CPUS_PER_TASK"]),
+               "mem_per_node": site["CPU_MEM_PER_NODE"] if cpu else site["MEM_PER_NODE"],
+               "walltime_seconds": seconds}
+    if shape == "light_cpu":
+        request.update(cpus_per_task=1, mem_per_node=str(min(4096, memory_megabytes(site["CPU_MEM_PER_NODE"]))) + "M")
+    elif shape == "single_gpu":
+        nodes = 1
+        request.update(nodes=1, gpus_per_node=1, cpus_per_task=min(8, int(site["CPUS_PER_TASK"])),
+                       mem_per_node=str(min(131072, memory_megabytes(site["MEM_PER_NODE"]))) + "M")
+    args = ["sbatch", "--test-only", "--parsable", "--export=ALL", "--no-requeue",
+            f"--chdir={HERE}", f"--account={site['ACCOUNT']}", f"--partition={request['partition']}",
+            f"--nodes={nodes}", f"--ntasks={nodes}", "--ntasks-per-node=1",
+            f"--cpus-per-task={request['cpus_per_task']}", f"--mem={request['mem_per_node']}",
+            f"--time={walltime(seconds)}"]
+    if not qos_disabled(qos):
+        args.append(f"--qos={qos}")
+    if not cpu:
+        gpu_type = site["GPU_TYPE"]
+        prefix = gpu_type + ":" if gpu_type.lower() not in ("", "generic") else ""
+        args.append(f"--gpus-per-node={prefix}{request['gpus_per_node']}")
+    args.append("--wrap=:")
+    probe = {"qos": qos, "shape": shape, "resources": request, "accepted": False}
+    try:
+        result = command(args, check=False)
+        # Controller diagnostics can enumerate thousands of node names. Keep
+        # structured decisions/resources; exclude that inventory from plans.
+        probe.update(accepted=result.returncode == 0, returncode=result.returncode,
+                     detail="accepted" if result.returncode == 0 else "scheduler rejected request")
+    except (FileNotFoundError, subprocess.TimeoutExpired) as error:
+        probe.update(returncode=None, detail=type(error).__name__, unavailable=True)
+    return probe
+
+
+def qos_candidate_probes(site, key, name, seconds):
+    """Validate production and the smaller requests using this resource class."""
+    shapes = [("primary", seconds)]
+    if key == "CPU_QOS":
+        shapes.append(("light_cpu", seconds))
+    else:
+        single_times = [min(duration(site[stage + "_TIME"]), seconds)
+                        for stage in ("BANK", "EVAL")]
+        # Long-QOS selection uses the production maximum; short-QOS selection
+        # only covers single-GPU jobs whose actual request is at most an hour.
+        actual = [min(duration(site[stage + "_TIME"]), duration(site["MAX_WALLTIME"]))
+                  for stage in ("BANK", "EVAL")]
+        applicable = [value for value, actual_value in zip(single_times, actual)
+                      if (actual_value <= 3600) == (key == "GPU_QOS_SHORT")]
+        if applicable:
+            shapes.append(("single_gpu", max(applicable)))
+    probes = []
+    for shape, required_seconds in shapes:
+        probe = qos_probe(site, key, name, required_seconds, shape=shape)
+        probes.append(probe)
+        if not probe["accepted"]:
+            break
+    return probes
+
+
+def discover_qos(site, associations, overridden):
+    """Select permitted, sufficient QOS values and verify each resource class."""
+    notes, evidence, failures = [], {}, []
+    original_maximum = duration(site["MAX_WALLTIME"])
+    automatic = [key for key in QOS_KEYS if key not in overridden]
+    for key in QOS_KEYS:
+        if key in overridden:
+            # Preserve '-' exactly, for compatibility with existing site.env files.
+            if str(site[key]).strip().lower() in ("", "none"):
+                site[key] = "none"
+            site["_sources"][key] = "user override"
+    if not automatic:
+        return notes
+    allowed = {key: qos_names(associations, site["ACCOUNT"],
+                             site["CPU_PARTITION"] if key == "CPU_QOS" else site["PARTITION"])
+               for key in automatic}
+    limits, priorities = {}, {}
+    limits_available = False
+    if any(allowed.values()):
+        try:
+            limits = qos_limits(priorities)
+            limits_available = True
+        except (FileNotFoundError, RuntimeError, subprocess.TimeoutExpired) as error:
+            notes.append("QOS MaxWall discovery unavailable; use site-default none: " + str(error))
+    long_cap = None
+    if "GPU_QOS_LONG" in automatic:
+        # A <=1h QOS belongs to short jobs and must not hide the sole QOS
+        # capable of longer training segments. Commit a lower cap only after
+        # that candidate passes the production and applicable single-GPU probes.
+        known = {name: limits[name] for name in allowed["GPU_QOS_LONG"]
+                 if name in limits and (limits[name] is None or limits[name] > 3600)}
+        target = duration(site["MAX_WALLTIME"])
+        if len(known) == 1:
+            name, limit = next(iter(known.items()))
+            if limit is not None and limit < target:
+                long_cap = limit // 60 * 60
+    ordered = (["GPU_QOS_LONG"] + [key for key in automatic if key != "GPU_QOS_LONG"]
+               if long_cap else automatic)
+    for key in ordered:
+        seconds = (3900 if key == "CPU_QOS" else
+                   long_cap if key == "GPU_QOS_LONG" and long_cap else duration(site["MAX_WALLTIME"]))
+        if key == "GPU_QOS_SHORT":
+            seconds = min(3600, seconds)
+        unpublished = bool(allowed[key]) and limits_available and not any(
+            limits.get(name) is not None for name in allowed[key])
+        if unpublished:
+            # Without finite limits, a named QOS cannot be justified by job
+            # duration. Let site defaults/plugins assign it whenever possible.
+            eligible = sorted(allowed[key], key=lambda name: (-priorities.get(name, 0), name))
+        else:
+            eligible = [name for name in allowed[key] if name in limits
+                        and (limits[name] is None or limits[name] >= seconds)]
+            eligible.sort(key=lambda name: (float("inf") if limits[name] is None else limits[name],
+                                             -priorities.get(name, 0), name))
+        if not allowed[key]:
+            default_source = "default none (no association QOS)"
+        elif unpublished:
+            default_source = "site default (QOS limits not published)"
+        elif not limits_available:
+            default_source = "default none (QOS discovery unavailable)"
+        else:
+            default_source = "default none (no accepted sufficient QOS)"
+        row = {"requested_seconds": seconds, "partition": site["CPU_PARTITION"] if key == "CPU_QOS" else site["PARTITION"],
+               "allowed_qos": sorted(allowed[key]),
+               "max_wall_seconds": {name: limits[name] for name in sorted(allowed[key]) if name in limits},
+               "priorities": {name: priorities.get(name, 0) for name in sorted(allowed[key])},
+               "limits_not_published": unpublished,
+               "original_gpu_max_walltime_seconds": original_maximum,
+               "effective_gpu_max_walltime_seconds": duration(site["MAX_WALLTIME"]),
+               "candidates": [{"qos": name, "max_wall_seconds": limits.get(name),
+                               "priority": priorities.get(name, 0)} for name in eligible], "probes": []}
+        evidence[key] = row
+        attempts = ["none"] + eligible if unpublished else eligible + ["none"]
+        for name in attempts:
+            probe_seconds = original_maximum if name == "none" and key == "GPU_QOS_LONG" and long_cap else seconds
+            probes = qos_candidate_probes(site, key, name, probe_seconds)
+            row["probes"].extend(probes)
+            probe = probes[-1]
+            if all(value["accepted"] for value in probes):
+                if key == "GPU_QOS_LONG" and long_cap and name != "none":
+                    notes.append(f"MAX_WALLTIME reduced from {site['MAX_WALLTIME']} to {walltime(long_cap)} "
+                                 f"by the sole accepted long GPU QOS {name} MaxWall={limits[name]}s.")
+                    site["MAX_WALLTIME"] = walltime(long_cap)
+                    site["_sources"]["MAX_WALLTIME"] = "test-only verified"
+                source = (default_source if name == "none" else
+                          "ambiguous-needs-confirmation" if unpublished else "detected+test-only verified")
+                site[key], site["_sources"][key] = name, source
+                row.update(selected=name, source=source, selected_requested_seconds=probe_seconds,
+                           effective_gpu_max_walltime_seconds=duration(site["MAX_WALLTIME"]))
+                if unpublished and name != "none":
+                    notes.append(f"{key}={name}: ambiguous; mentor must confirm "
+                                 "(QOS limits not published; site default rejected).")
+                elif name == "none":
+                    reason = ("association has no QOS list or sacctmgr is unavailable" if not allowed[key]
+                              else "QOS limits not published" if unpublished
+                              else "no associated QOS with sufficient MaxWall was test-only accepted")
+                    notes.append(f"{key}=none ({reason}); site default QOS, test-only verified.")
+                break
+            # An unavailable executable cannot validate another named candidate;
+            # still attempt the required default-none fallback exactly once.
+            if probe.get("unavailable"):
+                if name != "none":
+                    fallback_seconds = original_maximum if key == "GPU_QOS_LONG" and long_cap else seconds
+                    fallback_probes = qos_candidate_probes(site, key, "none", fallback_seconds)
+                    row["probes"].extend(fallback_probes)
+                    if all(value["accepted"] for value in fallback_probes):
+                        site[key], site["_sources"][key] = "none", default_source
+                        row.update(selected="none", source=default_source)
+                        notes.append(f"{key}=none (QOS probing unavailable); site default QOS, test-only verified.")
+                break
+        if "selected" not in row:
+            failures.append(key)
+    site["_qos_discovery"] = evidence
+    if failures:
+        gate_failure({"run_prefix": run_prefix(site), "site": site, "qos_discovery": evidence},
+                     ["QOS discovery incomplete; confirm " + ", ".join(failures)
+                      + " with an explicit override (none uses the site default); root 待核"])
+    return notes
 
 
 def load_site_env(path):
@@ -296,12 +533,20 @@ def site_configuration(args, env=None):
                 "MIN_FREE_INODES": env.get("BIGFIELD_MIN_FREE_INODES", "100000")}
     if saved.is_file():
         site = read_json(saved)
+        site.setdefault("_sources", {key: "saved binding" for key in SITE_KEYS if key in site})
+        associations = []
         notes = []
     else:
-        discovered, notes = discover_site(env)
+        # Site-file values participate in discovery, including account and
+        # partition selection; process environment remains the final override.
+        discovered, notes = discover_site(dict(supplied, **env))
+        associations = discovered.pop("_association_records", [])
         site = dict(defaults, **discovered)
+        site["_sources"] = dict({key: "default" for key in defaults},
+                                **{key: "detected" for key in discovered})
     if args.site_env:
         site.update(supplied)
+        site["_sources"].update({key: "user override" for key in supplied})
     for key in SITE_KEYS:
         if key in env:
             value = env[key]
@@ -316,24 +561,34 @@ def site_configuration(args, env=None):
             if saved.is_file() and str(site.get(key, "")) != value:
                 raise ValueError(f"Existing run binds {key}={site.get(key)!r}; use its site.env or a new OUTPUT_ROOT")
             site[key] = value
+            if not saved.is_file():
+                site["_sources"][key] = "user override"
     if args.data_root:
         site["DATA_ROOT"] = str(Path(args.data_root).expanduser().resolve())
+        if not saved.is_file():
+            site["_sources"]["DATA_ROOT"] = "user override"
     if not saved.exists() and "PYTHON" not in env and not args.site_env:
         setup = Path(site["DATA_ROOT"]) / "setup/status.json"
         if setup.is_file() and read_json(setup).get("training_python"):
             site["PYTHON"] = read_json(setup)["training_python"]
+            site["_sources"]["PYTHON"] = "detected"
     site["OUTPUT_ROOT"] = str(root)
+    if not saved.is_file() and (args.output_root or "OUTPUT_ROOT" in env or "OUTPUT_ROOT" in supplied):
+        site["_sources"]["OUTPUT_ROOT"] = "user override"
     required = ("ACCOUNT", "PARTITION", "GPUS_PER_NODE", "CPUS_PER_TASK", "MEM_PER_NODE", "MAX_WALLTIME", "CPU_PARTITION",
-                "CPU_QOS", "GPU_QOS_SHORT", "GPU_QOS_LONG")
+                )
     interactive = sys.stdin.isatty() and not args.yes and not saved.exists()
     if interactive:
         for note in notes:
             print(note, file=sys.stderr)
         print("Confirm site parameters. Press Enter to accept each detected value.", file=sys.stderr)
         for key in required + ("NODES", "GPU_TYPE", "SMOKE_TIME", "BANK_TIME", "EVAL_TIME"):
-            answer = input(f"{key} [{site.get(key, '')}]: ").strip()
+            print(f"{key} [{site.get(key, '')}; {site['_sources'].get(key, 'default')}]: ",
+                  file=sys.stderr, end="", flush=True)
+            answer = input().strip()
             if answer:
                 site[key] = answer
+                site["_sources"][key] = "user override"
     elif not args.yes and not saved.exists():
         raise ValueError("First site configuration requires interactive confirmation or --yes after the mentor confirms ACCOUNT/PARTITION/NODES")
     missing = [key for key in required if not str(site.get(key, "")).strip()]
@@ -350,7 +605,7 @@ def site_configuration(args, env=None):
     total = int(site["NODES"]) * int(site["GPUS_PER_NODE"])
     if 64 % total:
         raise ValueError("Total GPUs must divide the fixed 64 global caption groups")
-    for key in ("ACCOUNT", "PARTITION", "CPU_PARTITION", "CPU_QOS", "GPU_TYPE", "GPU_QOS_SHORT", "GPU_QOS_LONG"):
+    for key in ("ACCOUNT", "PARTITION", "CPU_PARTITION", "GPU_TYPE"):
         if site.get(key) and not re.fullmatch(r"[A-Za-z0-9_.-]+", site[key]):
             raise ValueError(f"Invalid {key}")
     for key in ("MEM_PER_NODE", "CPU_MEM_PER_NODE"):
@@ -362,6 +617,19 @@ def site_configuration(args, env=None):
         duration(site[key])
     if duration(site["CPU_TIME"]) != 3900:
         raise ValueError("CPU_TIME must be exactly 01:05:00 to avoid short-request rewriting")
+    if not saved.is_file():
+        notes.extend(discover_qos(site, associations, set(supplied) | set(env)))
+        if interactive:
+            for key in QOS_KEYS:
+                print(f"{key} [{site[key]}; {site['_sources'][key]}]: ",
+                      file=sys.stderr, end="", flush=True)
+                answer = input().strip()
+                if answer:
+                    site[key] = "none" if qos_disabled(answer) and answer != "-" else answer
+                    site["_sources"][key] = "user override"
+    for key in QOS_KEYS:
+        if key not in site or (not qos_disabled(site[key]) and not re.fullmatch(r"[A-Za-z0-9_.-]+", site[key])):
+            raise ValueError(f"Invalid {key}")
     for key in ("MIN_FREE_BYTES", "MIN_FREE_INODES"):
         if not str(site[key]).isdecimal():
             raise ValueError(f"{key} must be a nonnegative integer")
@@ -485,6 +753,10 @@ def nearest_existing(path):
 
 
 def gate_failure(report, errors):
+    if PLAN_ONLY_CONTEXT.get():
+        # Read-only plans retain all gate inputs in the diagnostic stream.
+        print("GATE_REPORT " + json.dumps(dict(report, errors=errors), sort_keys=True), file=sys.stderr, flush=True)
+        raise RuntimeError("; ".join(errors) + ". PLAN_ONLY; no files or run root/journal reserved")
     # A failing first preflight must not consume the run root or any journal.
     evidence = Path(tempfile.gettempdir()) / ("bigfield_preflight_" + report["run_prefix"].strip("_"))
     evidence.mkdir(parents=True, exist_ok=True)
@@ -687,7 +959,7 @@ def resources(site, stage, seconds=None):
     if not cpu and seconds > min(86400, duration(site["MAX_WALLTIME"])):
         raise ValueError("Rounded GPU walltime exceeds the partition maximum")
     qos = site["CPU_QOS"] if cpu else site["GPU_QOS_SHORT" if seconds <= 3600 else "GPU_QOS_LONG"]
-    if qos == "-":
+    if qos_disabled(qos):
         qos = ""
     cpus = int(site["CPU_CPUS_PER_TASK"] if cpu else site["CPUS_PER_TASK"])
     memory = site["CPU_MEM_PER_NODE"] if cpu else site["MEM_PER_NODE"]
@@ -1125,7 +1397,9 @@ def verify_release_waves(state, jobs, planned=(), *, release_keys=None):
     return roots, checked
 
 
-def submit_plan(plan, state, jobs, queue, *, nested=False, release_keys=None):
+def submit_plan(plan, state, jobs, queue, *, nested=False, release_keys=None, output_stream=None):
+    output_stream = sys.stdout if output_stream is None else output_stream
+    print("Submission | job ID | held/released", file=output_stream, flush=True)
     batch = []
     # Existing held roots are checked before consuming another journal. The
     # same check runs after all missing members have been registered below.
@@ -1187,14 +1461,14 @@ def submit_plan(plan, state, jobs, queue, *, nested=False, release_keys=None):
                 record.update(status="manual_required", no_job_created=True,
                               resume_command=f"bash run.sh --yes --submit --output-root {shlex.quote(spec['output_root'])}")
                 atomic_json(Path(state) / "jobs" / (key + ".json"), record)
-                print(json.dumps({"auto_advance": "manual_required", "reason": str(error), "resume_command": record["resume_command"]}), flush=True)
+                print(f"{key} | - | manual required: {record['resume_command']}", file=output_stream, flush=True)
                 jobs[key] = record
                 break
             atomic_json(Path(state) / "jobs" / (key + ".json"), record)
             raise RuntimeError(f"Submission stopped at {key}: {error}. Held roots remain held; inspect journals and logs. No retry or release was attempted.") from error
         jobs[key] = record
         batch.append((key, identifier, hold))
-        print(json.dumps({"submitted": key, "job_id": identifier, "held": hold}), flush=True)
+        print(f"{key} | {identifier} | {'held' if hold else 'dependency pending'}", file=output_stream, flush=True)
     # Release only after the entire wave has been read back successfully.
     roots, checked = verify_release_waves(state, jobs, release_keys=release_keys)
     for key in roots:
@@ -1214,13 +1488,78 @@ def submit_plan(plan, state, jobs, queue, *, nested=False, release_keys=None):
         job.update(status="complete" if fields.get("complete") else fields.get("JobState", "PENDING").lower(),
                    release_pending=False, release_state="released", readback_verified=True)
         atomic_json(Path(state) / "jobs" / (key + ".json"), job)
+        print(f"{key} | {job['job_id']} | released", file=output_stream, flush=True)
     return jobs
 
 
-def main(argv=None):
+def inventory_summary(report, site):
+    """Keep plan structure while replacing physical-node names with counts."""
+    report = dict(report)
+    inventory = dict(report["resource_inventory"])
+    if "physical_nodes" in inventory:
+        groups = {}
+        for row in inventory["physical_nodes"]:
+            group = groups.setdefault(row["name"], {"partition": row["name"], "node_count": 0, "gpus_per_node": {}})
+            group["node_count"] += 1
+            count = str(gpu_capacity(row, "generic"))
+            group["gpus_per_node"][count] = group["gpus_per_node"].get(count, 0) + 1
+        inventory["physical_nodes"] = [groups[key] for key in sorted(groups)]
+        for kind in ("gpu", "cpu"):
+            inventory["compatible_" + kind + "_node_count"] = len(inventory.pop("compatible_" + kind + "_nodes"))
+    report["resource_inventory"] = inventory
+    return report
+
+
+def print_plan_summary(plan, args):
+    """One-screen default; detailed plans remain available through --json."""
+    site, checks = plan["site"], plan["checks"]
+    sources = site.get("_sources", {})
+    print("SUBMIT" if args.submit else "PLAN_ONLY (read-only; --test-only probes create no jobs)")
+    print("Parameter | value | source")
+    for key in ("ACCOUNT", "PARTITION", "NODES", "GPUS_PER_NODE", "GPU_TYPE", "CPUS_PER_TASK", "MEM_PER_NODE",
+                "MAX_WALLTIME", "CPU_PARTITION", "CPU_CPUS_PER_TASK", "CPU_MEM_PER_NODE", "CPU_TIME",
+                "CPU_QOS", "GPU_QOS_SHORT", "GPU_QOS_LONG", "PYTHON", "DATA_ROOT", "OUTPUT_ROOT"):
+        print(f"{key} | {site[key]} | {sources.get(key, 'saved binding' if plan.get('existing_jobs') else 'default')}")
+    ambiguous = [key for key in QOS_KEYS if sources.get(key) == "ambiguous-needs-confirmation"]
+    if ambiguous:
+        print("WARNING: " + ", ".join(ambiguous) + ": ambiguous; mentor must confirm (QOS limits not published).")
+    print("Job key | resources (per node) | time | QOS | dependencies")
+    for spec in plan["jobs"][:8]:
+        res = spec["resources"]
+        resources_text = f"{res['nodes']}n x {res['gpus_per_node']}GPU/{res['cpus_per_task']}CPU/{res['mem_per_node']}"
+        print(f"{spec['key']} | {resources_text} | {walltime(res['walltime_seconds'])} | {res['qos'] or 'none'} | {','.join(spec['dependencies']) or 'root (held)'}")
+    if len(plan["jobs"]) > 8:
+        print(f"... {len(plan['jobs']) - 8} more jobs; use --json for all jobs")
+    print(f"First/current wave: {plan['h100_hours_requested']:.3f} H100h")
+    production = plan.get("production_h100_hours")
+    print("Later training segments/H100h: determined by validated smoke timing (throughput x 1.15)."
+          if production is None else f"Measured production request: {production:.3f} H100h; full segmentation: --json")
+    queue_status = checks.get("queue_status", "PASS")
+    capacity_status = "PASS" if checks["resource_inventory"]["status"] == "checked" else "root 待核"
+    print(f"Checks: storage PASS (minimum {checks['min_free_bytes']} bytes); inode PASS (minimum {checks['min_free_inodes']}); queue {queue_status}; capacity {capacity_status}")
+    notes = plan.get("notes", [])
+    if notes:
+        # Values and provenance above remain complete; long query diagnostics
+        # are kept in --json. Prioritize changed walltime and pending checks.
+        priority = sorted(notes, key=lambda note: ("MAX_WALLTIME" not in note, "root 待核" not in note))
+        print("Notes: " + " / ".join(priority)[:450])
+    next_command = ["bash", "run.sh", "--submit"]
+    if args.yes:
+        next_command.append("--yes")
+    for option, value in (("--output-root", args.output_root), ("--data-root", args.data_root),
+                          ("--site-env", args.site_env), ("--recover", args.recover)):
+        if value:
+            next_command.extend((option, str(value)))
+    if args.bundle:
+        next_command.append("--bundle")
+    print("Next: " + shlex.join(next_command), flush=True)
+
+
+def _main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--submit", action="store_true", help="Create jobs; omitted by default")
     parser.add_argument("--yes", action="store_true", help="Accept already confirmed site values; does not submit")
+    parser.add_argument("--json", action="store_true", help="Print the complete machine-readable plan with node counts")
     parser.add_argument("--output-root")
     parser.add_argument("--data-root")
     parser.add_argument("--site-env", help="Read explicit, shell-quoted KEY=value site settings")
@@ -1228,6 +1567,7 @@ def main(argv=None):
     parser.add_argument("--bundle", action="store_true", help="Plan an allocated CPU return bundle; --submit creates its job")
     parser.add_argument("--advance", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    PLAN_ONLY_CONTEXT.set(not args.submit)
     if args.bundle and (args.recover or args.advance):
         parser.error("--bundle cannot be combined with --recover or --advance")
     site, notes = site_configuration(args)
@@ -1242,14 +1582,17 @@ def main(argv=None):
             raise RuntimeError("Recovery generation/source binding differs")
         for name in recovery["superseded_keys"]:
             jobs[name]["superseded_by"] = recovery["generation"]
+    queue_status = "PASS"
     try:
         queue = queue_snapshot()
     except (FileNotFoundError, RuntimeError, subprocess.TimeoutExpired) as error:
         if args.submit:
             raise RuntimeError("Queue gate unavailable; root 待核; no run root/journal reserved: " + str(error)) from error
         queue = {}
+        queue_status = "root 待核"
         notes.append("Queue check unavailable; root 待核; PLAN_ONLY only: " + str(error))
     report = preflight(site, jobs, queue, submit=args.submit)
+    report["queue_status"] = queue_status
     if args.recover:
         recovery, jobs = prepare_recovery(args.recover, state, jobs, queue, source_sha)
     if not args.bundle:
@@ -1257,11 +1600,14 @@ def main(argv=None):
     if (state / "binding.json").exists() and read_json(state / "binding.json").get("source_manifest_sha256") != source_sha:
         raise RuntimeError("Run source binding differs; restore its exact frozen sources")
     plan = bundle_plan(site, state, jobs, source_sha) if args.bundle else stage_plan(site, state, jobs, source_sha, recovery=recovery)
-    plan["checks"] = report
+    plan["checks"] = inventory_summary(report, site)
     plan["notes"] = notes
     for spec in plan["jobs"]:
         spec["command_preview"] = sbatch_command(spec, state, ["<" + key + ">" for key in spec["dependencies"]], hold=not spec["dependencies"])
-    print(json.dumps(plan, indent=2), flush=True)
+    if args.json:
+        print(json.dumps(plan, indent=2), flush=True)
+    else:
+        print_plan_summary(plan, args)
     # An explicit archive request must not advance a held training wave.
     release_keys = ({key for key in jobs if key.startswith("bundle_")} |
                     {spec["key"] for spec in plan["jobs"]}) if args.bundle else None
@@ -1296,10 +1642,19 @@ def main(argv=None):
         for name in recovery["superseded_keys"]:
             atomic_json(state / "jobs" / (name + ".json"), jobs[name])
     try:
-        submit_plan(plan, state, jobs, queue, nested=nested, release_keys=release_keys)
+        submit_plan(plan, state, jobs, queue, nested=nested, release_keys=release_keys,
+                    output_stream=sys.stderr if args.json else sys.stdout)
     except ManualAdvanceRequired as error:
         return manual_advance(state, site, str(error))
     return plan
+
+
+def main(argv=None):
+    token = PLAN_ONLY_CONTEXT.set(False)
+    try:
+        return _main(argv)
+    finally:
+        PLAN_ONLY_CONTEXT.reset(token)
 
 
 if __name__ == "__main__":

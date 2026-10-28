@@ -160,7 +160,9 @@ class WorkflowTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def run_workflow(self, *args, extra=None, stdin=None):
-        return subprocess.run(["bash", str(self.code / "run.sh"), "--output-root", str(self.output),
+        # Existing checks consume the machine-readable plan; the CLI default is
+        # now the compact mentor summary.
+        return subprocess.run(["bash", str(self.code / "run.sh"), "--json", "--output-root", str(self.output),
                                "--data-root", str(self.data), *args],
                               cwd=ROOT, env=dict(self.env, **(extra or {})), text=True,
                               input=stdin, capture_output=True, timeout=30)
@@ -535,7 +537,7 @@ class WorkflowTests(unittest.TestCase):
         plan = json.loads(result.stdout)
         self.assertEqual(plan["site"]["NODES"], "1")
         self.assertEqual(plan["site"]["GPUS_PER_NODE"], "4")
-        self.assertEqual(plan["checks"]["resource_inventory"]["compatible_gpu_nodes"], ["gpu0"])
+        self.assertEqual(plan["checks"]["resource_inventory"]["compatible_gpu_node_count"], 1)
         inventory = "compute|only_gpu|gpu:h100:4|32|131072|1-00:00:00\n" * 4 + "cpu|cpu0|N/A|32|131072|2-00:00:00\n"
         repeated = self.run_workflow("--yes", extra={"FAKE_SINFO": inventory})
         self.assert_ok(repeated)
@@ -580,8 +582,8 @@ class WorkflowTests(unittest.TestCase):
                 self.assertEqual(self.workflow.duration(plan["site"]["MAX_WALLTIME"]), 86400)
                 self.assertEqual(plan["site"]["CPU_PARTITION"], "cpu")
                 checked = plan["checks"]["resource_inventory"]
-                self.assertEqual(checked["compatible_gpu_nodes"], ["gpu0"])
-                self.assertEqual(checked["compatible_cpu_nodes"], ["cpu0"])
+                self.assertEqual(checked["compatible_gpu_node_count"], 1)
+                self.assertEqual(checked["compatible_cpu_node_count"], 1)
                 self.assertTrue(all(job["resources"]["walltime_seconds"] <= 86400
                                     for job in plan["jobs"]))
                 self.assertFalse(self.output.exists())
@@ -598,7 +600,7 @@ class WorkflowTests(unittest.TestCase):
                 self.assert_ok(result)
                 plan = json.loads(result.stdout)
                 self.assertEqual(plan["site"]["MAX_WALLTIME"], "24:00:00")
-                self.assertEqual(plan["checks"]["resource_inventory"]["compatible_gpu_nodes"], ["gpu0"])
+                self.assertEqual(plan["checks"]["resource_inventory"]["compatible_gpu_node_count"], 1)
                 self.assertEqual(plan["checks"]["requested_capacity"]["gpu_walltime_seconds"], 86400)
                 self.assertFalse(self.output.exists())
                 self.assertFalse(self.calls("sbatch"))

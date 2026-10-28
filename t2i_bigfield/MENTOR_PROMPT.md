@@ -10,7 +10,7 @@ bash run.sh
 bash status.sh
 ```
 
-Have the mentor confirm the detected account, partition, node/GPU layout, CPU/memory/walltime and shared storage paths before submission. `run.sh` defaults to PLAN_ONLY; use `bash run.sh --submit` only after confirmation. Agent mode may use `--yes` with confirmed overrides; it does not itself authorize submission.
+Have the mentor confirm the detected account, partition, node/GPU layout, CPU/memory/walltime, QOS and shared storage paths before submission. `run.sh` defaults to a concise PLAN_ONLY summary with value sources; use `bash run.sh --yes --json` for the complete plan with node counts only. QOS is automatically selected and checked with read-only `sbatch --test-only`; missing association data defaults to `none`, while all candidates lacking a finite MaxWall trigger `none` first and priority-ordered fallback marked **ambiguous; mentor must confirm**. Case-insensitive `none` or an explicitly empty QOS omits `--qos`; environment variables and `--site-env` override discovery. PLAN_ONLY creates no files or jobs. Use `bash run.sh --submit` only after confirmation; `--yes` accepts confirmed overrides and never implies submission. Existing run bindings must remain unchanged.
 
 Setup installs independent training/GenEval/DPG environments and resumes SHA-verified downloads. Scorer installation failure is recorded pending and must not block training. All data reconstruction, DINO bank, smoke, training, sampling and scoring run on allocated compute resources. Never run heavy work on a login node.
 

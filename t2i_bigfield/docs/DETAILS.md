@@ -242,20 +242,39 @@ leaves training ready and scoring pending.
 
 ### Run, continuation and results
 
-`bash run.sh` probes the site, presents the account/partition/topology/resources,
-and prints PLAN_ONLY. Approve the actual site values before `bash run.sh --submit`.
-`--yes` supports agent operation with confirmed environment overrides; it does
-not imply `--submit`. Site settings persist as `OUTPUT_ROOT/state/site.env` only
-when the submission gates pass. The state machine schedules data preparation,
+`bash run.sh` probes the site and prints a short PLAN_ONLY summary: site values
+and sources, first-wave jobs/resources/dependencies, H100-hours and storage,
+inode and queue checks. `bash run.sh --yes --json` prints the complete JSON plan;
+node inventory is summarized by partition and GPUs/node without node names.
+Approve the actual site values before `bash run.sh --submit`, which also prints
+the summary and a short job-ID/held/released table. `--yes` accepts confirmed
+overrides and does not imply `--submit`. PLAN_ONLY creates no files or jobs;
+`sbatch --test-only` is a read-only scheduling query. Site settings persist as
+`OUTPUT_ROOT/state/site.env` only when all submission gates pass. The state machine schedules data preparation,
 DINO extraction, a production-topology 0-to-2 smoke and full-state 2-to-3 restore,
 then segmented 0-to-30,000 production, all fixed readouts and summary. Production
 restarts from the official initialization, independently of the smoke state.
 
-Confirm separate CPU and GPU resources and QoS choices. `CPU_QOS`,
-`GPU_QOS_SHORT`, and `GPU_QOS_LONG` use the site's real names; enter `-` only
-when that class of request deliberately needs no explicit QoS. CPU jobs request
-01:05:00; GPU QoS follows the confirmed short/long boundary. The controller's
-held-job readback must agree with the actual request before release.
+QOS discovery uses account/partition associations and QOS MaxWall limits. For
+CPU (01:05:00), GPU short (at most one hour) and GPU long (MAX_WALLTIME), it tries
+the shortest sufficient limit first, breaking ties by descending Priority then
+name, and verifies each candidate with
+`sbatch --test-only` for production, applicable single-GPU bank/eval and light
+CPU requests in that partition. Short-only QOS (MaxWall at most one hour) do
+not count as long candidates. A sole long QOS with a shorter limit lowers
+MAX_WALLTIME only after its resource probes pass, and reports the change.
+Missing association QOS data or unavailable sacctmgr defaults to `none`, using
+the site's default QOS; rejected candidates fall back to a test-only probe of
+`none`. If every candidate's MaxWall is missing, empty or UNLIMITED, `none` is
+probed first; only rejection permits probes by descending Priority then ascending name,
+marked **ambiguous; mentor must confirm**. An unverified fallback stops for
+confirmation. Sources distinguish `detected+test-only verified`,
+`site default (QOS limits not published)`, `default none (no association QOS)`,
+`user override` and `ambiguous-needs-confirmation`. `CPU_QOS`,
+`GPU_QOS_SHORT` and `GPU_QOS_LONG` accept case-insensitive `none` or an explicitly
+empty value to omit `--qos`. Environment variables and `--site-env` override
+discovery; an existing run keeps its exact bound values. Held-job readback
+checks explicit QOS before release and records the actual QOS for default requests.
 Limits round up to whole minutes before segment sizing, QoS selection and GPU
 hour accounting; the rounded request must remain within the partition limit.
 For sites registering untyped GPU resources, explicitly set `GPU_TYPE=generic`
